@@ -1,0 +1,27 @@
+# Chorus Observe default configuration
+# Include this profile or override in your application.yml
+#
+# IMPORTANT: You MUST provide a DataSource. Either:
+#   1. Set chorus.observe.database.url (recommended for dedicated DB)
+#   2. Or provide a primary DataSource bean (Chorus Observe will reuse it)
+
+chorus:
+  observe:
+    enabled: true
+    server:
+      port: 8080
+    database:
+      # Explicit dedicated database (recommended for production)
+      url: jdbc:postgresql://localhost:5432/chorus_observe
+      username: chorus
+      password: chorus
+      max-pool-size: 20
+      migrate-on-startup: true
+    grpc:
+      enabled: true
+      port: 4317
+
+spring:
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
