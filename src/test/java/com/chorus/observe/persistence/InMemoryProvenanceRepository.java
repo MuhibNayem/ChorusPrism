@@ -27,4 +27,18 @@ public class InMemoryProvenanceRepository extends ProvenanceRepository {
             .sorted((a, b) -> a.timestamp().compareTo(b.timestamp()))
             .collect(Collectors.toList());
     }
+
+    @Override
+    public List<ProvenanceEntry> findByRunId(String runId, int limit, int offset) {
+        return store.stream()
+            .filter(e -> e.runId().equals(runId))
+            .sorted((a, b) -> a.timestamp().compareTo(b.timestamp()))
+            .skip(offset).limit(limit)
+            .collect(Collectors.toList());
+    }
+
+    @Override
+    public long countByRunId(String runId) {
+        return store.stream().filter(e -> e.runId().equals(runId)).count();
+    }
 }

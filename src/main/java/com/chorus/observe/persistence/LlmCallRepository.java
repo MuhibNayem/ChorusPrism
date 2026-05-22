@@ -60,6 +60,17 @@ public class LlmCallRepository {
             rowMapper, runId);
     }
 
+    public @NonNull List<LlmCall> findByRunId(@NonNull String runId, int limit, int offset) {
+        return jdbc.query(
+            "SELECT * FROM llm_calls WHERE run_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?",
+            rowMapper, runId, limit, offset);
+    }
+
+    public long countByRunId(@NonNull String runId) {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM llm_calls WHERE run_id = ?", Long.class, runId);
+        return count != null ? count : 0L;
+    }
+
     public @NonNull List<LlmCall> findBySpanId(@NonNull String spanId) {
         return jdbc.query(
             "SELECT * FROM llm_calls WHERE span_id = ? ORDER BY created_at ASC",

@@ -23,10 +23,21 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.aspectj:aspectjweaver:1.9.22")
+    implementation("org.springframework.boot:spring-boot-starter-mail:4.0.0")
 
     // JSON
     implementation("com.fasterxml.jackson.core:jackson-databind:2.18.0")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.0")
+
+    // Security
+    implementation("org.springframework.security:spring-security-crypto:6.5.0")
+
+    // JWT
+    implementation("io.jsonwebtoken:jjwt-api:0.12.6")
+    runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
+    runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
 
     // Database
     implementation("org.postgresql:postgresql")
@@ -34,11 +45,19 @@ dependencies {
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("com.clickhouse:clickhouse-jdbc:0.7.1")
 
+    // Chorus Engine modules
+    implementation(project(":chorus-engine-evals"))
+    implementation(project(":chorus-engine-guardrails"))
+    implementation(project(":chorus-engine-tokenizer"))
+
     // OTLP gRPC intake
     implementation("io.grpc:grpc-netty-shaded:1.68.1")
     implementation("io.grpc:grpc-protobuf:1.68.1")
     implementation("io.grpc:grpc-stub:1.68.1")
     implementation("io.opentelemetry.proto:opentelemetry-proto:1.4.0-alpha")
+
+    // OpenAPI / Swagger
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0")
 
     // Null safety
     compileOnly("org.jspecify:jspecify:1.0.0")

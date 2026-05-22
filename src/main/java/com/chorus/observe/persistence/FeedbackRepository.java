@@ -52,6 +52,17 @@ public class FeedbackRepository {
             rowMapper, runId);
     }
 
+    public @NonNull List<Feedback> findByRunId(@NonNull String runId, int limit, int offset) {
+        return jdbc.query(
+            "SELECT * FROM feedback WHERE run_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            rowMapper, runId, limit, offset);
+    }
+
+    public long countByRunId(@NonNull String runId) {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM feedback WHERE run_id = ?", Long.class, runId);
+        return count != null ? count : 0L;
+    }
+
     public @NonNull Optional<Feedback> findById(@NonNull String feedbackId) {
         try {
             return Optional.ofNullable(jdbc.queryForObject(

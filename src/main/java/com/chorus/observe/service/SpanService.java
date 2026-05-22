@@ -1,6 +1,7 @@
 package com.chorus.observe.service;
 
 import com.chorus.observe.model.LlmCall;
+import com.chorus.observe.model.PagedResult;
 import com.chorus.observe.model.Span;
 import com.chorus.observe.model.ToolCall;
 import com.chorus.observe.persistence.LlmCallRepository;
@@ -33,11 +34,26 @@ public class SpanService {
         return spanRepository.findByRunId(runId);
     }
 
+    public @NonNull PagedResult<Span> getSpansForRun(@NonNull String runId, int page, int size) {
+        int offset = page * size;
+        return new PagedResult<>(spanRepository.findByRunId(runId, size, offset), spanRepository.countByRunId(runId), page, size);
+    }
+
     public @NonNull List<LlmCall> getLlmCallsForRun(@NonNull String runId) {
         return llmCallRepository.findByRunId(runId);
     }
 
+    public @NonNull PagedResult<LlmCall> getLlmCallsForRun(@NonNull String runId, int page, int size) {
+        int offset = page * size;
+        return new PagedResult<>(llmCallRepository.findByRunId(runId, size, offset), llmCallRepository.countByRunId(runId), page, size);
+    }
+
     public @NonNull List<ToolCall> getToolCallsForRun(@NonNull String runId) {
         return toolCallRepository.findByRunId(runId);
+    }
+
+    public @NonNull PagedResult<ToolCall> getToolCallsForRun(@NonNull String runId, int page, int size) {
+        int offset = page * size;
+        return new PagedResult<>(toolCallRepository.findByRunId(runId, size, offset), toolCallRepository.countByRunId(runId), page, size);
     }
 }

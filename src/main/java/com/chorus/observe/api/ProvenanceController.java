@@ -1,5 +1,6 @@
 package com.chorus.observe.api;
 
+import com.chorus.observe.model.PagedResult;
 import com.chorus.observe.model.ProvenanceEntry;
 import com.chorus.observe.persistence.ProvenanceRepository;
 import org.jspecify.annotations.NonNull;
@@ -7,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -26,8 +28,13 @@ public class ProvenanceController {
     }
 
     @GetMapping("/provenance")
-    public ResponseEntity<List<ProvenanceEntry>> getProvenance(@PathVariable @NonNull String runId) {
-        List<ProvenanceEntry> entries = provenanceRepository.findByRunId(runId);
-        return ResponseEntity.ok(entries);
+    public ResponseEntity<PagedResult<ProvenanceEntry>> getProvenance(
+            @PathVariable @NonNull String runId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        int offset = page * size;
+        List<ProvenanceEntry> entries = provenanceRepository.findByRunId(runId, size, offset);
+        long total = provenanceRepository.countByRunId(runId);
+        return ResponseEntity.ok(new PagedResult<>(entries, total, page, size));
     }
 }

@@ -1,6 +1,7 @@
 package com.chorus.observe.api;
 
 import com.chorus.observe.model.Run;
+import com.chorus.observe.persistence.InMemoryEvalResultRepository;
 import com.chorus.observe.persistence.InMemoryRunRepository;
 import com.chorus.observe.persistence.RunRepository;
 import com.chorus.observe.service.RunService;
@@ -29,7 +30,7 @@ class RunControllerTest {
             Map.of(), Map.of(), 100, BigDecimal.ZERO, 1000
         ));
 
-        RunService service = new RunService(repo);
+        RunService service = new RunService(repo, new InMemoryEvalResultRepository());
         SpanStreamService streamService = new SpanStreamService(new ObjectMapper());
         RunController controller = new RunController(service, streamService);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
@@ -43,7 +44,7 @@ class RunControllerTest {
     @Test
     void shouldReturnNotFoundForMissingRun() throws Exception {
         RunRepository repo = new InMemoryRunRepository();
-        RunService service = new RunService(repo);
+        RunService service = new RunService(repo, new InMemoryEvalResultRepository());
         SpanStreamService streamService = new SpanStreamService(new ObjectMapper());
         RunController controller = new RunController(service, streamService);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();

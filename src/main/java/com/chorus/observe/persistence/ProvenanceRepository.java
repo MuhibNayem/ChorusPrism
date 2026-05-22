@@ -60,6 +60,17 @@ public class ProvenanceRepository {
             rowMapper, runId);
     }
 
+    public @NonNull List<ProvenanceEntry> findByRunId(@NonNull String runId, int limit, int offset) {
+        return jdbc.query(
+            "SELECT * FROM provenance_entries WHERE run_id = ? ORDER BY timestamp ASC LIMIT ? OFFSET ?",
+            rowMapper, runId, limit, offset);
+    }
+
+    public long countByRunId(@NonNull String runId) {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM provenance_entries WHERE run_id = ?", Long.class, runId);
+        return count != null ? count : 0L;
+    }
+
     private @NonNull String toJson(@NonNull Object value) {
         try {
             return mapper.writeValueAsString(value);

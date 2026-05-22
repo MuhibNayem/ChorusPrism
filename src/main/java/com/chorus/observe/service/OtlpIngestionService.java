@@ -4,40 +4,61 @@ import com.chorus.observe.model.*;
 import com.chorus.observe.persistence.RunRepository;
 import com.chorus.observe.store.SpanStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.annotation.Counted;
+import io.micrometer.core.annotation.Timed;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import jakarta.annotation.PreDestroy;
 
 /**
  * Transforms OTLP spans into Chorus Observe domain models and persists them.
  * Thread-safe. Designed for high-throughput ingestion.
  * <p>
- * Uses {@link SpanStore} for span/llm/tool persistence (pluggable: PostgreSQL, ClickHouse, or dual-write)
- * and {@link RunRepository} for relational run aggregation.
+ * Batching strategy:
+ * <ul>
+ *   <li>Within a single {@link #ingestSpans} call, all spans are accumulated and flushed in bulk.</li>
+ *   <li>{@link SpanStore} receives batch inserts (not N individual round-trips).</li>
+ *   <li>Run accumulators are flushed once per batch, not once per span.</li>
+ * </ul>
+ * <p>
+ * Memory safety:
+ * <ul>
+ *   <li>Run accumulators auto-expire after {@value #ACCUMULATOR_TTL_MINUTES} minutes of inactivity.</li>
+ *   <li>A background task evicts stale entries every 5 minutes.</li>
+ * </ul>
  */
 public class OtlpIngestionService {
 
     private static final Logger LOG = LoggerFactory.getLogger(OtlpIngestionService.class);
+    private static final int ACCUMULATOR_TTL_MINUTES = 60;
+    private static final int EVICTION_INTERVAL_MINUTES = 5;
 
     private final RunRepository runRepository;
     private final SpanStore spanStore;
     private final ObjectMapper mapper;
     private final SpanStreamService streamService;
+    private final MetricsService metricsService;
 
-    // In-memory buffer for run aggregation before flush
     private final ConcurrentHashMap<String, RunAccumulator> runAccumulators = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService evictionScheduler;
 
     public OtlpIngestionService(
             @NonNull RunRepository runRepository,
             @NonNull SpanStore spanStore,
             @NonNull ObjectMapper mapper) {
-        this(runRepository, spanStore, mapper, null);
+        this(runRepository, spanStore, mapper, null, null);
     }
 
     public OtlpIngestionService(
@@ -45,82 +66,108 @@ public class OtlpIngestionService {
             @NonNull SpanStore spanStore,
             @NonNull ObjectMapper mapper,
             SpanStreamService streamService) {
+        this(runRepository, spanStore, mapper, streamService, null);
+    }
+
+    public OtlpIngestionService(
+            @NonNull RunRepository runRepository,
+            @NonNull SpanStore spanStore,
+            @NonNull ObjectMapper mapper,
+            SpanStreamService streamService,
+            @Nullable MetricsService metricsService) {
         this.runRepository = Objects.requireNonNull(runRepository);
         this.spanStore = Objects.requireNonNull(spanStore);
         this.mapper = Objects.requireNonNull(mapper);
         this.streamService = streamService;
+        this.metricsService = metricsService;
+        this.evictionScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "chorus-observe-accumulator-eviction");
+            t.setDaemon(true);
+            return t;
+        });
+        this.evictionScheduler.scheduleAtFixedRate(
+            this::evictStaleAccumulators, EVICTION_INTERVAL_MINUTES, EVICTION_INTERVAL_MINUTES, TimeUnit.MINUTES);
     }
 
     /**
-     * Ingest a batch of OTLP spans.
+     * Ingest a batch of OTLP spans. All spans in the batch are persisted in bulk.
      */
+    @Timed(value = "ingestion.spans.batch", description = "Time spent ingesting a batch of spans")
+    @Counted(value = "ingestion.spans.batches", description = "Total number of span batch ingestions")
     public void ingestSpans(@NonNull List<OtlpSpan> spans) {
+        if (spans.isEmpty()) return;
+
+        List<Span> allSpans = new ArrayList<>(spans.size());
+        List<LlmCall> allLlmCalls = new ArrayList<>();
+        List<ToolCall> allToolCalls = new ArrayList<>();
+        Set<String> affectedRunIds = new HashSet<>();
+
         for (OtlpSpan otlp : spans) {
             try {
-                ingestSingleSpan(otlp);
+                String runId = otlp.attributes().getOrDefault("chorus.run_id", otlp.traceId()).toString();
+                affectedRunIds.add(runId);
+
+                Span.Kind kind = mapSpanKind(otlp.kind());
+                Span.Status status = mapStatus(otlp.statusCode());
+
+                Span span = new Span(
+                    otlp.spanId(), runId, otlp.parentSpanId(), otlp.name(),
+                    kind, otlp.startTime(), otlp.endTime(),
+                    new HashMap<>(otlp.attributes()), otlp.events(), status
+                );
+                allSpans.add(span);
+
+                if (otlp.attributes().containsKey("gen_ai.system") || otlp.attributes().containsKey("gen_ai.request.model")) {
+                    LlmCall llmCall = extractLlmCall(otlp, runId);
+                    if (llmCall != null) allLlmCalls.add(llmCall);
+                }
+
+                if (otlp.attributes().containsKey("gen_ai.tool.name") || otlp.attributes().containsKey("chorus.tool.name")) {
+                    ToolCall toolCall = extractToolCall(otlp, runId);
+                    if (toolCall != null) allToolCalls.add(toolCall);
+                }
+
+                if (streamService != null) {
+                    streamService.publish(runId, span);
+                }
+
+                accumulateRun(runId, otlp);
             } catch (Exception e) {
                 LOG.warn("Failed to ingest span {}: {}", otlp.spanId(), e.getMessage());
             }
         }
-    }
 
-    private void ingestSingleSpan(@NonNull OtlpSpan otlp) {
-        String runId = otlp.attributes().getOrDefault("chorus.run_id", otlp.traceId()).toString();
-
-        // Determine span kind and status
-        Span.Kind kind = mapSpanKind(otlp.kind());
-        Span.Status status = mapStatus(otlp.statusCode());
-
-        // Build and buffer span
-        Span span = new Span(
-            otlp.spanId(),
-            runId,
-            otlp.parentSpanId(),
-            otlp.name(),
-            kind,
-            otlp.startTime(),
-            otlp.endTime(),
-            new HashMap<>(otlp.attributes()),
-            otlp.events(),
-            status
-        );
-
-        // Extract LLM call if gen_ai attributes are present
-        LlmCall llmCall = null;
-        if (otlp.attributes().containsKey("gen_ai.system") || otlp.attributes().containsKey("gen_ai.request.model")) {
-            llmCall = extractLlmCall(otlp, runId);
+        // Bulk persist
+        if (!allSpans.isEmpty()) {
+            spanStore.saveSpans(allSpans);
+        }
+        if (!allLlmCalls.isEmpty()) {
+            spanStore.saveLlmCalls(allLlmCalls);
+        }
+        if (!allToolCalls.isEmpty()) {
+            spanStore.saveToolCalls(allToolCalls);
         }
 
-        // Extract tool call if tool attributes are present
-        ToolCall toolCall = null;
-        if (otlp.attributes().containsKey("gen_ai.tool.name") || otlp.attributes().containsKey("chorus.tool.name")) {
-            toolCall = extractToolCall(otlp, runId);
+        // Flush affected runs once per batch
+        for (String runId : affectedRunIds) {
+            flushRun(runId);
         }
 
-        // Batch persist via SpanStore
-        spanStore.saveSpans(List.of(span));
-        if (llmCall != null) {
-            spanStore.saveLlmCalls(List.of(llmCall));
+        if (metricsService != null) {
+            metricsService.incrementIngestionSpansTotal(spans.size());
         }
-        if (toolCall != null) {
-            spanStore.saveToolCalls(List.of(toolCall));
-        }
-
-        // Stream to subscribers
-        if (streamService != null) {
-            streamService.publish(runId, span);
-        }
-
-        // Accumulate run data
-        accumulateRun(runId, otlp);
     }
 
     private void accumulateRun(@NonNull String runId, @NonNull OtlpSpan otlp) {
         RunAccumulator acc = runAccumulators.computeIfAbsent(runId, k -> new RunAccumulator());
+        acc.lastAccessed = Instant.now();
 
-        acc.framework = otlp.attributes().getOrDefault("chorus.framework", "unknown").toString();
-        acc.agentId = otlp.attributes().getOrDefault("gen_ai.agent.id", "unknown").toString();
-        acc.model = otlp.attributes().getOrDefault("gen_ai.request.model", acc.model).toString();
+        acc.framework = otlp.attributes().getOrDefault("chorus.framework", acc.framework).toString();
+        acc.agentId = otlp.attributes().getOrDefault("gen_ai.agent.id", acc.agentId).toString();
+        Object model = otlp.attributes().get("gen_ai.request.model");
+        if (model != null) {
+            acc.model = model.toString();
+        }
 
         if (acc.startTime == null || otlp.startTime().isBefore(acc.startTime)) {
             acc.startTime = otlp.startTime();
@@ -129,7 +176,6 @@ public class OtlpIngestionService {
             acc.endTime = otlp.endTime();
         }
 
-        // Aggregate tokens and cost
         Object inputTokens = otlp.attributes().get("gen_ai.usage.input_tokens");
         if (inputTokens instanceof Number n) {
             acc.totalTokens += n.intValue();
@@ -143,15 +189,11 @@ public class OtlpIngestionService {
             acc.totalCost = acc.totalCost.add(BigDecimal.valueOf(n.doubleValue()));
         }
 
-        // Determine status
         if (otlp.statusCode() == 2) { // ERROR
             acc.status = Run.Status.ERROR;
         } else if (acc.status == Run.Status.RUNNING && otlp.endTime() != null) {
             acc.status = Run.Status.SUCCESS;
         }
-
-        // Flush to DB every span for simplicity; in production, batch flush
-        flushRun(runId);
     }
 
     private void flushRun(@NonNull String runId) {
@@ -160,7 +202,7 @@ public class OtlpIngestionService {
 
         long latencyMs = 0;
         if (acc.endTime != null) {
-            latencyMs = java.time.Duration.between(acc.startTime, acc.endTime).toMillis();
+            latencyMs = Duration.between(acc.startTime, acc.endTime).toMillis();
         }
 
         Map<String, String> tags = new HashMap<>();
@@ -183,7 +225,21 @@ public class OtlpIngestionService {
         runRepository.save(run);
     }
 
-    private LlmCall extractLlmCall(@NonNull OtlpSpan otlp, @NonNull String runId) {
+    private void evictStaleAccumulators() {
+        try {
+            Instant cutoff = Instant.now().minusSeconds(ACCUMULATOR_TTL_MINUTES * 60L);
+            int before = runAccumulators.size();
+            runAccumulators.entrySet().removeIf(e -> e.getValue().lastAccessed.isBefore(cutoff));
+            int after = runAccumulators.size();
+            if (before != after) {
+                LOG.debug("Evicted {} stale run accumulators ({} remaining)", before - after, after);
+            }
+        } catch (Exception e) {
+            LOG.warn("Accumulator eviction task failed", e);
+        }
+    }
+
+    private @Nullable LlmCall extractLlmCall(@NonNull OtlpSpan otlp, @NonNull String runId) {
         Map<String, Object> attrs = otlp.attributes();
         int inputTokens = 0;
         int outputTokens = 0;
@@ -197,7 +253,7 @@ public class OtlpIngestionService {
         Object costVal = attrs.get("chorus.cost_usd");
         if (costVal instanceof Number n) cost = BigDecimal.valueOf(n.doubleValue());
         if (otlp.endTime() != null) {
-            latencyMs = java.time.Duration.between(otlp.startTime(), otlp.endTime()).toMillis();
+            latencyMs = Duration.between(otlp.startTime(), otlp.endTime()).toMillis();
         }
 
         @SuppressWarnings("unchecked")
@@ -221,11 +277,11 @@ public class OtlpIngestionService {
         );
     }
 
-    private ToolCall extractToolCall(@NonNull OtlpSpan otlp, @NonNull String runId) {
+    private @Nullable ToolCall extractToolCall(@NonNull OtlpSpan otlp, @NonNull String runId) {
         Map<String, Object> attrs = otlp.attributes();
         long latencyMs = 0;
         if (otlp.endTime() != null) {
-            latencyMs = java.time.Duration.between(otlp.startTime(), otlp.endTime()).toMillis();
+            latencyMs = Duration.between(otlp.startTime(), otlp.endTime()).toMillis();
         }
 
         String toolName = Objects.toString(
@@ -271,6 +327,7 @@ public class OtlpIngestionService {
         Run.Status status = Run.Status.RUNNING;
         int totalTokens = 0;
         BigDecimal totalCost = BigDecimal.ZERO;
+        Instant lastAccessed = Instant.now();
     }
 
     /**
@@ -281,11 +338,24 @@ public class OtlpIngestionService {
         @NonNull String spanId,
         @NonNull String name,
         @NonNull Instant startTime,
-        @NonNull Instant endTime,
+        @Nullable Instant endTime,
         int kind,
         int statusCode,
         @NonNull Map<String, Object> attributes,
         @NonNull List<Span.SpanEvent> events,
-        @NonNull String parentSpanId
+        @Nullable String parentSpanId
     ) {}
+
+    @PreDestroy
+    public void close() {
+        evictionScheduler.shutdown();
+        try {
+            if (!evictionScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                evictionScheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            evictionScheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
 }

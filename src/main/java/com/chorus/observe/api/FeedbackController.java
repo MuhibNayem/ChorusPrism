@@ -1,7 +1,10 @@
 package com.chorus.observe.api;
 
 import com.chorus.observe.model.Feedback;
+import com.chorus.observe.model.PagedResult;
 import com.chorus.observe.service.FeedbackService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import org.jspecify.annotations.NonNull;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -25,7 +28,7 @@ public class FeedbackController {
     @PostMapping("/feedback")
     public ResponseEntity<Feedback> submitFeedback(
             @PathVariable @NonNull String runId,
-            @RequestBody @NonNull FeedbackRequest request) {
+            @RequestBody @Valid @NonNull FeedbackRequest request) {
         Feedback feedback = feedbackService.submitFeedback(
             runId, request.spanId(), request.score(), request.label(), request.comment(), request.source()
         );
@@ -33,8 +36,11 @@ public class FeedbackController {
     }
 
     @GetMapping("/feedback")
-    public ResponseEntity<List<Feedback>> getFeedback(@PathVariable @NonNull String runId) {
-        return ResponseEntity.ok(feedbackService.getFeedbackForRun(runId));
+    public ResponseEntity<PagedResult<Feedback>> getFeedback(
+            @PathVariable @NonNull String runId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(feedbackService.getFeedbackForRun(runId, page, size));
     }
 
     public record FeedbackRequest(
@@ -42,7 +48,7 @@ public class FeedbackController {
         Double score,
         String label,
         String comment,
-        String source
+        @NotNull String source
     ) {
         public FeedbackRequest {
             source = source != null ? source : "human";

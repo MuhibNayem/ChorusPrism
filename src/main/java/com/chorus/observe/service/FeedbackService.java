@@ -1,6 +1,7 @@
 package com.chorus.observe.service;
 
 import com.chorus.observe.model.Feedback;
+import com.chorus.observe.model.PagedResult;
 import com.chorus.observe.persistence.FeedbackRepository;
 import org.jspecify.annotations.NonNull;
 
@@ -44,6 +45,11 @@ public class FeedbackService {
 
     public @NonNull List<Feedback> getFeedbackForRun(@NonNull String runId) {
         return feedbackRepository.findByRunId(runId);
+    }
+
+    public @NonNull PagedResult<Feedback> getFeedbackForRun(@NonNull String runId, int page, int size) {
+        int offset = page * size;
+        return new PagedResult<>(feedbackRepository.findByRunId(runId, size, offset), feedbackRepository.countByRunId(runId), page, size);
     }
 
     public @NonNull Optional<Feedback> getFeedback(@NonNull String feedbackId) {

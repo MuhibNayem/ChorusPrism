@@ -3,6 +3,8 @@ package com.chorus.observe.store;
 import com.chorus.observe.model.LlmCall;
 import com.chorus.observe.model.Span;
 import com.chorus.observe.model.ToolCall;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +15,7 @@ import java.sql.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -32,9 +35,15 @@ public class ClickHouseSpanStore implements SpanStore {
     private static final Logger LOG = LoggerFactory.getLogger(ClickHouseSpanStore.class);
 
     private final DataSource dataSource;
+    private final ObjectMapper mapper;
 
     public ClickHouseSpanStore(@NonNull DataSource dataSource) {
+        this(dataSource, new ObjectMapper());
+    }
+
+    public ClickHouseSpanStore(@NonNull DataSource dataSource, @NonNull ObjectMapper mapper) {
         this.dataSource = Objects.requireNonNull(dataSource);
+        this.mapper = Objects.requireNonNull(mapper);
     }
 
     @Override
@@ -188,6 +197,8 @@ public class ClickHouseSpanStore implements SpanStore {
     }
 
     private Span mapSpan(ResultSet rs) throws SQLException {
+        Map<String, Object> attrs = parseJson(rs.getString("attributes"), new TypeReference<>() {});
+        List<Span.SpanEvent> events = parseJson(rs.getString("events"), new TypeReference<>() {});
         return new Span(
             rs.getString("span_id"),
             rs.getString("run_id"),
@@ -196,8 +207,8 @@ public class ClickHouseSpanStore implements SpanStore {
             Span.Kind.valueOf(rs.getString("kind")),
             rs.getTimestamp("start_time").toInstant(),
             rs.getTimestamp("end_time") != null ? rs.getTimestamp("end_time").toInstant() : null,
-            java.util.Map.of(),
-            java.util.List.of(),
+            attrs != null ? attrs : Map.of(),
+            events != null ? events : List.of(),
             Span.Status.valueOf(rs.getString("status"))
         );
     }
@@ -236,9 +247,21 @@ public class ClickHouseSpanStore implements SpanStore {
 
     private String toJson(Object value) {
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(value);
+            return mapper.writeValueAsString(value);
         } catch (Exception e) {
             return "{}";
+        }
+    }
+
+    private <T> T parseJson(String json, TypeReference<T> typeRef) {
+        if (json == null || json.isBlank() || json.equals("{}")) {
+            return null;
+        }
+        try {
+            return mapper.readValue(json, typeRef);
+        } catch (Exception e) {
+            LOG.warn("Failed to parse JSON: {}", json, e);
+            return null;
         }
     }
 }

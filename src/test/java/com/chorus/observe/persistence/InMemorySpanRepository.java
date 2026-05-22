@@ -29,6 +29,20 @@ public class InMemorySpanRepository extends SpanRepository {
     }
 
     @Override
+    public List<Span> findByRunId(String runId, int limit, int offset) {
+        return store.stream()
+            .filter(s -> s.runId().equals(runId))
+            .sorted((a, b) -> a.startTime().compareTo(b.startTime()))
+            .skip(offset).limit(limit)
+            .collect(Collectors.toList());
+    }
+
+    @Override
+    public long countByRunId(String runId) {
+        return store.stream().filter(s -> s.runId().equals(runId)).count();
+    }
+
+    @Override
     public List<Span> findByRunIdAndKind(String runId, Span.Kind kind) {
         return store.stream()
             .filter(s -> s.runId().equals(runId) && s.kind() == kind)

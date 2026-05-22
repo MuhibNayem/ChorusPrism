@@ -48,6 +48,17 @@ public class ToolCallRepository {
             rowMapper, runId);
     }
 
+    public @NonNull List<ToolCall> findByRunId(@NonNull String runId, int limit, int offset) {
+        return jdbc.query(
+            "SELECT * FROM tool_calls WHERE run_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?",
+            rowMapper, runId, limit, offset);
+    }
+
+    public long countByRunId(@NonNull String runId) {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM tool_calls WHERE run_id = ?", Long.class, runId);
+        return count != null ? count : 0L;
+    }
+
     public @NonNull List<ToolCall> findBySpanId(@NonNull String spanId) {
         return jdbc.query(
             "SELECT * FROM tool_calls WHERE span_id = ? ORDER BY created_at ASC",

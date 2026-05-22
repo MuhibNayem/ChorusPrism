@@ -117,7 +117,18 @@ public class RunRepository {
             args.add(pattern);
         }
 
-        sql.append(" ORDER BY ").append(query.sortBy()).append(" ").append(query.sortOrder());
+        String sortCol = switch (query.sortBy()) {
+            case "run_id" -> "run_id";
+            case "agent_id" -> "agent_id";
+            case "framework" -> "framework";
+            case "model" -> "model";
+            case "status" -> "status";
+            case "total_tokens" -> "total_tokens";
+            case "total_cost" -> "total_cost";
+            case "latency_ms" -> "latency_ms";
+            default -> "start_time";
+        };
+        sql.append(" ORDER BY ").append(sortCol).append(" ").append(query.sortOrder());
         sql.append(" LIMIT ? OFFSET ?");
         args.add(query.limit());
         args.add(query.offset());

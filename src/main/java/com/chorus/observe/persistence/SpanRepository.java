@@ -63,6 +63,17 @@ public class SpanRepository {
             rowMapper, runId);
     }
 
+    public @NonNull List<Span> findByRunId(@NonNull String runId, int limit, int offset) {
+        return jdbc.query(
+            "SELECT * FROM spans WHERE run_id = ? ORDER BY start_time ASC LIMIT ? OFFSET ?",
+            rowMapper, runId, limit, offset);
+    }
+
+    public long countByRunId(@NonNull String runId) {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM spans WHERE run_id = ?", Long.class, runId);
+        return count != null ? count : 0L;
+    }
+
     public @NonNull List<Span> findByRunIdAndKind(@NonNull String runId, Span.@NonNull Kind kind) {
         return jdbc.query(
             "SELECT * FROM spans WHERE run_id = ? AND kind = ? ORDER BY start_time ASC",

@@ -6,6 +6,7 @@ import com.chorus.observe.persistence.RunRepository.RunQuery;
 import com.chorus.observe.service.RunService;
 import com.chorus.observe.service.SpanStreamService;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -50,7 +51,15 @@ public class RunController {
         List<Run> runs = runService.listRuns(query);
         long total = runService.countRuns(query);
 
-        return ResponseEntity.ok(new RunListResponse(runs, total, page, size));
+        List<String> runIds = runs.stream().map(Run::runId).toList();
+        Map<String, RunService.RunEvalSummary> evalSummaryByRunId = runService.getEvalSummariesForRuns(runIds).stream()
+            .collect(java.util.stream.Collectors.toMap(RunService.RunEvalSummary::runId, s -> s));
+
+        List<RunWithEvalSummary> runsWithSummary = runs.stream()
+            .map(run -> new RunWithEvalSummary(run, evalSummaryByRunId.get(run.runId())))
+            .toList();
+
+        return ResponseEntity.ok(new RunListResponse(runsWithSummary, total, page, size));
     }
 
     @GetMapping("/{runId}")
@@ -69,8 +78,19 @@ public class RunController {
         return emitter;
     }
 
+    @GetMapping("/{runId}/eval-summary")
+    public ResponseEntity<RunService.RunEvalSummary> getRunEvalSummary(@PathVariable @NonNull String runId) {
+        RunService.RunEvalSummary summary = runService.getEvalSummaryForRun(runId);
+        if (summary == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(summary);
+    }
+
+    public record RunWithEvalSummary(@NonNull Run run, RunService.@Nullable RunEvalSummary evalSummary) {}
+
     public record RunListResponse(
-        @NonNull List<Run> runs,
+        @NonNull List<RunWithEvalSummary> runs,
         long total,
         int page,
         int size

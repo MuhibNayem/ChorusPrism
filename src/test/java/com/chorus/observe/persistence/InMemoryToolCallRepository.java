@@ -27,6 +27,19 @@ public class InMemoryToolCallRepository extends ToolCallRepository {
     }
 
     @Override
+    public List<ToolCall> findByRunId(String runId, int limit, int offset) {
+        return store.stream()
+            .filter(c -> c.runId().equals(runId))
+            .skip(offset).limit(limit)
+            .collect(Collectors.toList());
+    }
+
+    @Override
+    public long countByRunId(String runId) {
+        return store.stream().filter(c -> c.runId().equals(runId)).count();
+    }
+
+    @Override
     public List<ToolCall> findBySpanId(String spanId) {
         return store.stream()
             .filter(c -> c.spanId().equals(spanId))

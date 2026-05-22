@@ -35,8 +35,8 @@ class ProvenanceControllerTest {
 
         mvc.perform(get("/api/v1/runs/run-1/provenance"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.length()").value(2))
-            .andExpect(jsonPath("$[0].entryId").value("e1"))
-            .andExpect(jsonPath("$[1].parentIds[0]").value("e1"));
+            .andExpect(jsonPath("$.items.length()").value(2))
+            .andExpect(jsonPath("$.items[0].entryId").value("e1"))
+            .andExpect(jsonPath("$.items[1].parentIds[0]").value("e1"));
     }
 }

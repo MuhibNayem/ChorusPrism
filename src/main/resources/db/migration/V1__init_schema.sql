@@ -93,13 +93,15 @@ CREATE INDEX idx_feedback_span_id ON feedback(span_id);
 CREATE INDEX idx_feedback_source ON feedback(source);
 
 -- TimescaleDB hypertable for metric snapshots (if TimescaleDB is available)
+-- Primary key must include timestamp for hypertable compatibility
 CREATE TABLE IF NOT EXISTS metric_snapshots (
-    snapshot_id VARCHAR(64) PRIMARY KEY,
+    snapshot_id VARCHAR(64) NOT NULL,
     metric_name VARCHAR(256) NOT NULL,
     value DOUBLE PRECISION NOT NULL,
     tags JSONB NOT NULL DEFAULT '{}',
     timestamp TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (snapshot_id, timestamp)
 );
 
 CREATE INDEX idx_metric_snapshots_name_time ON metric_snapshots(metric_name, timestamp DESC);
