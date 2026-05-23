@@ -1,3 +1,5 @@
+<img src="logo.svg" alt="Chorus Engine logo" width="96" height="96" />
+
 # Chorus Observe Server
 
 > **Enterprise observability, evaluation, and operations platform for LLM agents.**

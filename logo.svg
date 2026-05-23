@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" width="96" height="96" role="img" aria-label="Chorus Engine logo">
+  <path d="M16 2 L28 9 L28 23 L16 30 L4 23 L4 9 Z" fill="url(#g1)" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+  <path d="M16 9 L22 12.5 L22 19.5 L16 23 L10 19.5 L10 12.5 Z" fill="rgba(255,255,255,0.95)"/>
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+</svg>

@@ -2,18 +2,29 @@ plugins {
     id("java-library")
     id("io.spring.dependency-management") version "1.1.7"
     id("org.springframework.boot") version "4.0.0"
+    id("com.vanniktech.maven.publish") version "0.33.0"
 }
 
-group = "com.chorus"
-version = "1.0.0"
+group = "io.github.muhibnayem"
+version = providers.gradleProperty("releaseVersion")
+    .orElse(
+        providers.exec {
+            commandLine("git", "describe", "--tags", "--always")
+            isIgnoreExitValue = true
+        }.standardOutput.asText.map { it.trim().removePrefix("v") }
+    )
+    .orElse("0.1.0-SNAPSHOT")
+    .get()
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    }
 }
 
 repositories {
     mavenCentral()
+    mavenLocal()
 }
 
 dependencies {
@@ -45,10 +56,11 @@ dependencies {
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("com.clickhouse:clickhouse-jdbc:0.7.1")
 
-    // Chorus Engine modules
-    implementation(project(":chorus-engine-evals"))
-    implementation(project(":chorus-engine-guardrails"))
-    implementation(project(":chorus-engine-tokenizer"))
+    // Chorus Engine modules (version managed by BOM)
+    implementation(platform("io.github.muhibnayem:chorus-engine-bom:0.1.7"))
+    implementation("io.github.muhibnayem:chorus-engine-evals")
+    implementation("io.github.muhibnayem:chorus-engine-guardrails")
+    implementation("io.github.muhibnayem:chorus-engine-tokenizer")
 
     // OTLP gRPC intake
     implementation("io.grpc:grpc-netty-shaded:1.68.1")
@@ -75,11 +87,23 @@ dependencies {
 
 tasks.withType<JavaCompile> {
     options.compilerArgs.addAll(listOf("--enable-preview", "--add-modules", "jdk.incubator.vector"))
+    options.release.set(25)
 }
 
 tasks.withType<Test> {
+    useJUnitPlatform()
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector")
     maxHeapSize = "2g"
+}
+
+tasks.withType<Javadoc> {
+    options.encoding = "UTF-8"
+    (options as StandardJavadocDocletOptions).apply {
+        addBooleanOption("-enable-preview", true)
+        addStringOption("-add-modules", "jdk.incubator.vector")
+        addStringOption("source", "25")
+    }
+    isFailOnError = false
 }
 
 tasks.withType<org.springframework.boot.gradle.tasks.bundling.BootJar> {
