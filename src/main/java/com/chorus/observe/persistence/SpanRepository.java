@@ -33,8 +33,8 @@ public class SpanRepository {
 
     public void save(@NonNull Span span) {
         String sql = """
-            INSERT INTO spans (span_id, run_id, parent_span_id, span_name, kind, start_time, end_time, attributes, events, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?)
+            INSERT INTO spans (span_id, run_id, parent_span_id, span_name, kind, start_time, end_time, attributes, events, status, span_type, first_token_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?)
             ON CONFLICT (span_id) DO UPDATE SET
                 run_id = EXCLUDED.run_id,
                 parent_span_id = EXCLUDED.parent_span_id,
@@ -44,7 +44,9 @@ public class SpanRepository {
                 end_time = EXCLUDED.end_time,
                 attributes = EXCLUDED.attributes,
                 events = EXCLUDED.events,
-                status = EXCLUDED.status
+                status = EXCLUDED.status,
+                span_type = EXCLUDED.span_type,
+                first_token_at = EXCLUDED.first_token_at
             """;
         jdbc.update(sql,
             span.spanId(), span.runId(), span.parentSpanId(), span.spanName(),
@@ -53,7 +55,9 @@ public class SpanRepository {
             span.endTime() != null ? Timestamp.from(span.endTime()) : null,
             toJson(span.attributes()),
             toJson(span.events()),
-            span.status().name()
+            span.status().name(),
+            span.spanType(),
+            span.firstTokenAt() != null ? Timestamp.from(span.firstTokenAt()) : null
         );
     }
 
@@ -112,7 +116,9 @@ public class SpanRepository {
                     rs.getTimestamp("end_time") != null ? rs.getTimestamp("end_time").toInstant() : null,
                     mapper.readValue(rs.getString("attributes"), new TypeReference<Map<String, Object>>() {}),
                     mapper.readValue(rs.getString("events"), new TypeReference<List<Span.SpanEvent>>() {}),
-                    Span.Status.valueOf(rs.getString("status"))
+                    Span.Status.valueOf(rs.getString("status")),
+                    rs.getString("span_type"),
+                    rs.getTimestamp("first_token_at") != null ? rs.getTimestamp("first_token_at").toInstant() : null
                 );
             } catch (JsonProcessingException e) {
                 throw new SQLException("Failed to deserialize JSON", e);

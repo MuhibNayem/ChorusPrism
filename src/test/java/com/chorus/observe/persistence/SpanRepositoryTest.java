@@ -23,7 +23,8 @@ class SpanRepositoryTest {
     void shouldSaveAndFindByRunId() {
         Span span = new Span(
             "span-1", "run-1", null, "llm.call", Span.Kind.INTERNAL,
-            Instant.now(), Instant.now(), Map.of("key", "value"), List.of(), Span.Status.OK
+            Instant.now(), Instant.now(), Map.of("key", "value"), List.of(), Span.Status.OK,
+            "llm", null
         );
 
         repository.save(span);
@@ -31,5 +32,6 @@ class SpanRepositoryTest {
         List<Span> spans = repository.findByRunId("run-1");
         assertThat(spans).hasSize(1);
         assertThat(spans.get(0).spanName()).isEqualTo("llm.call");
+        assertThat(spans.get(0).spanType()).isEqualTo("llm");
     }
 }

@@ -32,8 +32,8 @@ public class LlmCallRepository {
 
     public void save(@NonNull LlmCall call) {
         String sql = """
-            INSERT INTO llm_calls (call_id, span_id, run_id, provider, model, input_tokens, output_tokens, cost_usd, latency_ms, prompt, completion, finish_reasons)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+            INSERT INTO llm_calls (call_id, span_id, run_id, provider, model, input_tokens, output_tokens, cost_usd, latency_ms, prompt, completion, finish_reasons, messages)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)
             ON CONFLICT (call_id) DO UPDATE SET
                 span_id = EXCLUDED.span_id,
                 run_id = EXCLUDED.run_id,
@@ -45,12 +45,14 @@ public class LlmCallRepository {
                 latency_ms = EXCLUDED.latency_ms,
                 prompt = EXCLUDED.prompt,
                 completion = EXCLUDED.completion,
-                finish_reasons = EXCLUDED.finish_reasons
+                finish_reasons = EXCLUDED.finish_reasons,
+                messages = EXCLUDED.messages
             """;
         jdbc.update(sql,
             call.callId(), call.spanId(), call.runId(), call.provider(), call.model(),
             call.inputTokens(), call.outputTokens(), call.costUsd(), call.latencyMs(),
-            call.prompt(), call.completion(), toJson(call.finishReasons())
+            call.prompt(), call.completion(), toJson(call.finishReasons()),
+            call.messages() != null ? toJson(call.messages()) : null
         );
     }
 
@@ -107,7 +109,10 @@ public class LlmCallRepository {
                     rs.getLong("latency_ms"),
                     rs.getString("prompt"),
                     rs.getString("completion"),
-                    mapper.readValue(rs.getString("finish_reasons"), new TypeReference<List<String>>() {})
+                    mapper.readValue(rs.getString("finish_reasons"), new TypeReference<List<String>>() {}),
+                    rs.getString("messages") != null
+                        ? mapper.readValue(rs.getString("messages"), new TypeReference<List<LlmCall.LlmMessage>>() {})
+                        : null
                 );
             } catch (JsonProcessingException e) {
                 throw new SQLException("Failed to deserialize JSON", e);

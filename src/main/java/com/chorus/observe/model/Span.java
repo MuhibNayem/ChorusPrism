@@ -21,7 +21,9 @@ public record Span(
     @Nullable Instant endTime,
     @NonNull Map<String, Object> attributes,
     @NonNull List<SpanEvent> events,
-    @NonNull Status status
+    @NonNull Status status,
+    @Nullable String spanType,
+    @Nullable Instant firstTokenAt
 ) {
 
     public Span {

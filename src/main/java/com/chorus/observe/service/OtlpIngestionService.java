@@ -1,8 +1,10 @@
 package com.chorus.observe.service;
 
 import com.chorus.observe.model.*;
+import com.chorus.observe.persistence.AgentRepository;
 import com.chorus.observe.persistence.RunRepository;
 import com.chorus.observe.store.SpanStore;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.annotation.Counted;
 import io.micrometer.core.annotation.Timed;
@@ -50,6 +52,7 @@ public class OtlpIngestionService {
     private final ObjectMapper mapper;
     private final SpanStreamService streamService;
     private final MetricsService metricsService;
+    private final AgentRepository agentRepository;
 
     private final ConcurrentHashMap<String, RunAccumulator> runAccumulators = new ConcurrentHashMap<>();
     private final ScheduledExecutorService evictionScheduler;
@@ -58,7 +61,7 @@ public class OtlpIngestionService {
             @NonNull RunRepository runRepository,
             @NonNull SpanStore spanStore,
             @NonNull ObjectMapper mapper) {
-        this(runRepository, spanStore, mapper, null, null);
+        this(runRepository, spanStore, mapper, null, null, null);
     }
 
     public OtlpIngestionService(
@@ -66,7 +69,7 @@ public class OtlpIngestionService {
             @NonNull SpanStore spanStore,
             @NonNull ObjectMapper mapper,
             SpanStreamService streamService) {
-        this(runRepository, spanStore, mapper, streamService, null);
+        this(runRepository, spanStore, mapper, streamService, null, null);
     }
 
     public OtlpIngestionService(
@@ -75,11 +78,22 @@ public class OtlpIngestionService {
             @NonNull ObjectMapper mapper,
             SpanStreamService streamService,
             @Nullable MetricsService metricsService) {
+        this(runRepository, spanStore, mapper, streamService, metricsService, null);
+    }
+
+    public OtlpIngestionService(
+            @NonNull RunRepository runRepository,
+            @NonNull SpanStore spanStore,
+            @NonNull ObjectMapper mapper,
+            SpanStreamService streamService,
+            @Nullable MetricsService metricsService,
+            @Nullable AgentRepository agentRepository) {
         this.runRepository = Objects.requireNonNull(runRepository);
         this.spanStore = Objects.requireNonNull(spanStore);
         this.mapper = Objects.requireNonNull(mapper);
         this.streamService = streamService;
         this.metricsService = metricsService;
+        this.agentRepository = agentRepository;
         this.evictionScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "chorus-observe-accumulator-eviction");
             t.setDaemon(true);
@@ -109,11 +123,14 @@ public class OtlpIngestionService {
 
                 Span.Kind kind = mapSpanKind(otlp.kind());
                 Span.Status status = mapStatus(otlp.statusCode());
+                String spanType = classifySpanType(otlp);
+                Instant firstTokenAt = extractFirstTokenAt(otlp);
 
                 Span span = new Span(
                     otlp.spanId(), runId, otlp.parentSpanId(), otlp.name(),
                     kind, otlp.startTime(), otlp.endTime(),
-                    new HashMap<>(otlp.attributes()), otlp.events(), status
+                    new HashMap<>(otlp.attributes()), otlp.events(), status,
+                    spanType, firstTokenAt
                 );
                 allSpans.add(span);
 
@@ -194,6 +211,11 @@ public class OtlpIngestionService {
         } else if (acc.status == Run.Status.RUNNING && otlp.endTime() != null) {
             acc.status = Run.Status.SUCCESS;
         }
+
+        if (agentRepository != null && !acc.agentUpserted) {
+            acc.agentUpserted = true;
+            agentRepository.upsertFromRun(acc.agentId, acc.framework);
+        }
     }
 
     private void flushRun(@NonNull String runId) {
@@ -261,6 +283,8 @@ public class OtlpIngestionService {
             ? (List<String>) attrs.get("gen_ai.response.finish_reasons")
             : List.of();
 
+        List<LlmCall.LlmMessage> messages = parseLlmMessages(attrs.get("gen_ai.messages"));
+
         return new LlmCall(
             otlp.spanId() + ":llm",
             otlp.spanId(),
@@ -273,8 +297,43 @@ public class OtlpIngestionService {
             latencyMs,
             Objects.toString(attrs.get("gen_ai.prompt"), null),
             Objects.toString(attrs.get("gen_ai.completion"), null),
-            finishReasons
+            finishReasons,
+            messages
         );
+    }
+
+    private @Nullable List<LlmCall.LlmMessage> parseLlmMessages(@Nullable Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (raw instanceof String s) {
+            try {
+                List<Map<String, Object>> list = mapper.readValue(s, new TypeReference<>() {});
+                return list.stream()
+                    .map(m -> new LlmCall.LlmMessage(
+                        Objects.toString(m.get("role"), ""),
+                        Objects.toString(m.get("text"), "")))
+                    .filter(m -> !m.role().isEmpty())
+                    .toList();
+            } catch (Exception e) {
+                LOG.warn("Failed to parse gen_ai.messages JSON string: {}", e.getMessage());
+                return null;
+            }
+        }
+        if (raw instanceof List<?> list) {
+            List<LlmCall.LlmMessage> messages = new ArrayList<>();
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map) {
+                    String role = Objects.toString(map.get("role"), null);
+                    String text = Objects.toString(map.get("text"), null);
+                    if (role != null && text != null) {
+                        messages.add(new LlmCall.LlmMessage(role, text));
+                    }
+                }
+            }
+            return messages.isEmpty() ? null : messages;
+        }
+        return null;
     }
 
     private @Nullable ToolCall extractToolCall(@NonNull OtlpSpan otlp, @NonNull String runId) {
@@ -298,6 +357,32 @@ public class OtlpIngestionService {
             latencyMs,
             otlp.statusCode() == 2 ? Objects.toString(attrs.get("error.message"), "error") : null
         );
+    }
+
+    private @Nullable String classifySpanType(@NonNull OtlpSpan otlp) {
+        String name = otlp.name();
+        Map<String, Object> attrs = otlp.attributes();
+        if (name.startsWith("llm.") || attrs.containsKey("gen_ai.system")) {
+            return "llm";
+        }
+        if (name.startsWith("tool.") || attrs.containsKey("chorus.tool.name")) {
+            return "tool";
+        }
+        if (name.startsWith("rag.") || attrs.containsKey("rag.collection")) {
+            return "rag";
+        }
+        if (name.startsWith("guardrail.") || attrs.containsKey("guard.policy")) {
+            return "guardrail";
+        }
+        return "default";
+    }
+
+    private @Nullable Instant extractFirstTokenAt(@NonNull OtlpSpan otlp) {
+        Object firstTokenMs = otlp.attributes().get("gen_ai.response.first_token_ms");
+        if (firstTokenMs instanceof Number n) {
+            return otlp.startTime().plusMillis(n.longValue());
+        }
+        return null;
     }
 
     private Span.Kind mapSpanKind(int otlpKind) {
@@ -328,6 +413,7 @@ public class OtlpIngestionService {
         int totalTokens = 0;
         BigDecimal totalCost = BigDecimal.ZERO;
         Instant lastAccessed = Instant.now();
+        boolean agentUpserted = false;
     }
 
     /**

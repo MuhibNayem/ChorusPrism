@@ -50,8 +50,8 @@ public class ClickHouseSpanStore implements SpanStore {
     public void saveSpans(@NonNull List<Span> spans) {
         if (spans.isEmpty()) return;
         String sql = """
-            INSERT INTO ch_spans (span_id, run_id, parent_span_id, span_name, kind, start_time, end_time, attributes, events, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ch_spans (span_id, run_id, parent_span_id, span_name, kind, start_time, end_time, attributes, events, status, span_type, first_token_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -66,6 +66,8 @@ public class ClickHouseSpanStore implements SpanStore {
                 ps.setString(8, toJson(span.attributes()));
                 ps.setString(9, toJson(span.events()));
                 ps.setString(10, span.status().name());
+                ps.setString(11, span.spanType());
+                ps.setTimestamp(12, span.firstTokenAt() != null ? Timestamp.from(span.firstTokenAt()) : null);
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -78,8 +80,8 @@ public class ClickHouseSpanStore implements SpanStore {
     public void saveLlmCalls(@NonNull List<LlmCall> calls) {
         if (calls.isEmpty()) return;
         String sql = """
-            INSERT INTO ch_llm_calls (call_id, span_id, run_id, provider, model, input_tokens, output_tokens, cost_usd, latency_ms, prompt, completion, finish_reasons)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ch_llm_calls (call_id, span_id, run_id, provider, model, input_tokens, output_tokens, cost_usd, latency_ms, prompt, completion, finish_reasons, messages)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -96,6 +98,7 @@ public class ClickHouseSpanStore implements SpanStore {
                 ps.setString(10, call.prompt());
                 ps.setString(11, call.completion());
                 ps.setString(12, String.join(",", call.finishReasons()));
+                ps.setString(13, call.messages() != null ? toJson(call.messages()) : null);
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -209,13 +212,19 @@ public class ClickHouseSpanStore implements SpanStore {
             rs.getTimestamp("end_time") != null ? rs.getTimestamp("end_time").toInstant() : null,
             attrs != null ? attrs : Map.of(),
             events != null ? events : List.of(),
-            Span.Status.valueOf(rs.getString("status"))
+            Span.Status.valueOf(rs.getString("status")),
+            rs.getString("span_type"),
+            rs.getTimestamp("first_token_at") != null ? rs.getTimestamp("first_token_at").toInstant() : null
         );
     }
 
     private LlmCall mapLlmCall(ResultSet rs) throws SQLException {
         String fr = rs.getString("finish_reasons");
         List<String> finishReasons = fr != null && !fr.isEmpty() ? java.util.List.of(fr.split(",")) : java.util.List.of();
+        String messagesJson = rs.getString("messages");
+        List<LlmCall.LlmMessage> messages = messagesJson != null && !messagesJson.isEmpty() && !messagesJson.equals("{}")
+            ? parseJson(messagesJson, new TypeReference<>() {})
+            : null;
         return new LlmCall(
             rs.getString("call_id"),
             rs.getString("span_id"),
@@ -228,7 +237,8 @@ public class ClickHouseSpanStore implements SpanStore {
             rs.getLong("latency_ms"),
             rs.getString("prompt"),
             rs.getString("completion"),
-            finishReasons
+            finishReasons,
+            messages
         );
     }
 

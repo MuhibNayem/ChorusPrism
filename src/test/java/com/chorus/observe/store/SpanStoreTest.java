@@ -32,7 +32,7 @@ class SpanStoreTest {
     @Test
     void shouldSaveAndRetrieveSpans() {
         Span span = new Span("s1", "run-1", null, "test", Span.Kind.INTERNAL,
-            Instant.now(), Instant.now(), Map.of(), List.of(), Span.Status.OK);
+            Instant.now(), Instant.now(), Map.of(), List.of(), Span.Status.OK, null, null);
 
         store.saveSpans(List.of(span));
 
@@ -43,7 +43,8 @@ class SpanStoreTest {
     @Test
     void shouldSaveAndRetrieveLlmCalls() {
         LlmCall call = new LlmCall("c1", "s1", "run-1", "openai", "gpt-4o",
-            100, 50, BigDecimal.valueOf(0.01), 1200, "prompt", "completion", List.of("stop"));
+            100, 50, BigDecimal.valueOf(0.01), 1200, "prompt", "completion",
+            List.of("stop"), null);
 
         store.saveLlmCalls(List.of(call));
 
@@ -72,7 +73,7 @@ class SpanStoreTest {
         var dualStore = new DualWriteSpanStore(store, secondaryStore);
 
         Span span = new Span("s1", "run-1", null, "test", Span.Kind.INTERNAL,
-            Instant.now(), Instant.now(), Map.of(), List.of(), Span.Status.OK);
+            Instant.now(), Instant.now(), Map.of(), List.of(), Span.Status.OK, null, null);
         dualStore.saveSpans(List.of(span));
 
         assertThat(store.findSpansByRunId("run-1")).hasSize(1);

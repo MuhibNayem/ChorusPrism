@@ -31,8 +31,15 @@ public class MetricController {
     }
 
     @GetMapping("/dashboard")
-    public ResponseEntity<DashboardService.DashboardMetrics> getDashboard() {
-        return ResponseEntity.ok(dashboardService.getMetrics());
+    public ResponseEntity<DashboardService.DashboardMetrics> getDashboard(
+            @RequestParam(defaultValue = "24h") String window) {
+        return ResponseEntity.ok(dashboardService.getMetrics(window));
+    }
+
+    @GetMapping("/heatmap")
+    public ResponseEntity<List<List<Integer>>> getHeatmap(
+            @RequestParam(defaultValue = "7d") String window) {
+        return ResponseEntity.ok(dashboardService.getHeatmap(window));
     }
 
     @GetMapping("/cost")

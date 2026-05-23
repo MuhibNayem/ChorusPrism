@@ -22,7 +22,8 @@ public record LlmCall(
     long latencyMs,
     @Nullable String prompt,
     @Nullable String completion,
-    @NonNull List<String> finishReasons
+    @NonNull List<String> finishReasons,
+    @Nullable List<LlmMessage> messages
 ) {
 
     public LlmCall {
@@ -33,5 +34,19 @@ public record LlmCall(
         Objects.requireNonNull(model, "model");
         costUsd = costUsd != null ? costUsd : BigDecimal.ZERO;
         finishReasons = finishReasons != null ? List.copyOf(finishReasons) : List.of();
+        messages = messages != null ? List.copyOf(messages) : null;
+    }
+
+    /**
+     * A single message in an LLM conversation.
+     */
+    public record LlmMessage(
+        @NonNull String role,
+        @NonNull String text
+    ) {
+        public LlmMessage {
+            Objects.requireNonNull(role, "role");
+            Objects.requireNonNull(text, "text");
+        }
     }
 }

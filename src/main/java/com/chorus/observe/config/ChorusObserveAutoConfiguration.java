@@ -141,6 +141,12 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public AgentRepository agentRepository(@NonNull DataSource dataSource, @NonNull ObjectMapper mapper) {
+        return new AgentRepository(dataSource, mapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public FeedbackRepository feedbackRepository(@NonNull DataSource dataSource) {
         return new FeedbackRepository(dataSource);
     }
@@ -227,21 +233,57 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public EvaluatorRepository evaluatorRepository(@NonNull DataSource dataSource, @NonNull ObjectMapper mapper) {
+        return new EvaluatorRepository(dataSource, mapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RunEvaluationRepository runEvaluationRepository(@NonNull DataSource dataSource, @NonNull ObjectMapper mapper) {
+        return new RunEvaluationRepository(dataSource, mapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public OtlpIngestionService otlpIngestionService(
             @NonNull RunRepository runRepository,
             @NonNull SpanStore spanStore,
             @NonNull ObjectMapper mapper,
             ObjectProvider<SpanStreamService> streamServiceProvider,
-            ObjectProvider<MetricsService> metricsServiceProvider) {
+            ObjectProvider<MetricsService> metricsServiceProvider,
+            ObjectProvider<AgentRepository> agentRepositoryProvider) {
         SpanStreamService streamService = streamServiceProvider.getIfAvailable();
         MetricsService metricsService = metricsServiceProvider.getIfAvailable();
-        return new OtlpIngestionService(runRepository, spanStore, mapper, streamService, metricsService);
+        AgentRepository agentRepository = agentRepositoryProvider.getIfAvailable();
+        return new OtlpIngestionService(runRepository, spanStore, mapper, streamService, metricsService, agentRepository);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EvaluatorService evaluatorService(
+            @NonNull EvaluatorRepository evaluatorRepository,
+            @NonNull RunEvaluationRepository runEvaluationRepository) {
+        return new EvaluatorService(evaluatorRepository, runEvaluationRepository);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EvaluatorController evaluatorController(@NonNull EvaluatorService evaluatorService) {
+        return new EvaluatorController(evaluatorService);
     }
 
     @Bean
     @ConditionalOnMissingBean
     public RunService runService(@NonNull RunRepository runRepository, @NonNull EvalResultRepository evalResultRepository) {
         return new RunService(runRepository, evalResultRepository);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentService agentService(@NonNull AgentRepository agentRepository,
+                                     @NonNull RunRepository runRepository,
+                                     @NonNull DataSource chorusObserveDataSource) {
+        return new AgentService(agentRepository, runRepository, chorusObserveDataSource);
     }
 
     @Bean
@@ -267,6 +309,12 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public ModelService modelService(@NonNull DataSource chorusObserveDataSource) {
+        return new ModelService(chorusObserveDataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public FeedbackService feedbackService(@NonNull FeedbackRepository feedbackRepository) {
         return new FeedbackService(feedbackRepository);
     }
@@ -279,6 +327,12 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public AgentController agentController(@NonNull AgentService agentService) {
+        return new AgentController(agentService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public SpanController spanController(@NonNull SpanService spanService) {
         return new SpanController(spanService);
     }
@@ -287,6 +341,12 @@ public class ChorusObserveAutoConfiguration {
     @ConditionalOnMissingBean
     public MetricController metricController(@NonNull MetricService metricService, @NonNull DashboardService dashboardService) {
         return new MetricController(metricService, dashboardService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ModelController modelController(@NonNull ModelService modelService) {
+        return new ModelController(modelService);
     }
 
     @Bean

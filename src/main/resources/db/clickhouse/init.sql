@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS ch_spans (
     attributes String,
     events String,
     status String,
+    span_type Nullable(String),
+    first_token_at Nullable(DateTime64(3)),
     ingested_at DateTime64(3) DEFAULT now()
 ) ENGINE = MergeTree()
 ORDER BY (run_id, start_time, span_id);
@@ -29,6 +31,7 @@ CREATE TABLE IF NOT EXISTS ch_llm_calls (
     prompt Nullable(String),
     completion Nullable(String),
     finish_reasons String,
+    messages Nullable(String),
     ingested_at DateTime64(3) DEFAULT now()
 ) ENGINE = MergeTree()
 ORDER BY (run_id, ingested_at, call_id);

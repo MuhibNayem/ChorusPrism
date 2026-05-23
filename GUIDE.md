@@ -45,33 +45,33 @@ Chorus Observe Server is a **standalone observability backend** for LLM agents. 
 
 ### Enterprise Feature Matrix
 
-| Feature | Wave | Status |
-|---|---|---|
-| OTLP gRPC/HTTP ingestion | Phase 1 | ✅ |
-| PostgreSQL persistence + Flyway | Phase 1 | ✅ |
-| REST API v1 (runs, spans, metrics, feedback) | Phase 1 | ✅ |
-| GenAI semantic convention spans | Phase 1 | ✅ |
-| **JWT Authentication** | Wave 1 | ✅ |
-| **RBAC (users, roles, permissions)** | Wave 1 | ✅ |
-| **Database-backed API keys** | Wave 1 | ✅ |
-| **Audit logging** | Wave 1 | ✅ |
-| **Rate limiting** | Wave 1 | ✅ |
-| **Budget enforcement** | Wave 1 | ✅ |
-| **Distributed locking** | Wave 1 | ✅ |
-| **Sampling (random/head/tail)** | Wave 2 | ✅ |
-| **Data retention scheduler** | Wave 2 | ✅ |
-| **Export (JSON/CSV/Parquet)** | Wave 2 | ✅ |
-| **Alerting (SQL rules + webhooks)** | Wave 2 | ✅ |
-| **Multi-channel notifications** | Wave 3 | ✅ |
-| **Custom dashboards** | Wave 3 | ✅ |
-| **Eval framework (exact_match/contains/llm_judge)** | Wave 3 | ✅ |
-| **Red teaming with guardrail integration** | Wave 3 | ✅ |
-| **Prompt A/B testing** | Wave 3 | ✅ |
-| **Trace clustering (DBSCAN)** | Wave 3 | ✅ |
-| **Multi-turn testing** | Wave 3 | ✅ |
-| **ClickHouse dual-write** | Wave 3 | ✅ |
-| **Time-travel debugging** | Wave 3 | ✅ |
-| **SQL query interface** | Wave 3 | ✅ |
+| Feature | Status |
+|---|---|
+| OTLP gRPC/HTTP ingestion | ✅ |
+| PostgreSQL persistence + Flyway | ✅ |
+| REST API v1 (runs, spans, metrics, feedback) | ✅ |
+| GenAI semantic convention spans | ✅ |
+| **JWT Authentication** | ✅ |
+| **RBAC (users, roles, permissions)** | ✅ |
+| **Database-backed API keys** | ✅ |
+| **Audit logging** | ✅ |
+| **Rate limiting** | ✅ |
+| **Budget enforcement** | ✅ |
+| **Distributed locking** | ✅ |
+| **Sampling (random/head/tail)** | ✅ |
+| **Data retention scheduler** | ✅ |
+| **Export (JSON/CSV/Parquet)** | ✅ |
+| **Alerting (SQL rules + webhooks)** | ✅ |
+| **Multi-channel notifications** | ✅ |
+| **Custom dashboards** | ✅ |
+| **Eval framework (exact_match/contains/llm_judge)** | ✅ |
+| **Red teaming with guardrail integration** | ✅ |
+| **Prompt A/B testing** | ✅ |
+| **Trace clustering (DBSCAN)** | ✅ |
+| **Multi-turn testing** | ✅ |
+| **ClickHouse dual-write** | ✅ |
+| **Time-travel debugging** | ✅ |
+| **SQL query interface** | ✅ |
 
 ---
 
