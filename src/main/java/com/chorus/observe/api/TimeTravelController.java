@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.jspecify.annotations.NonNull;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.Objects;
 /**
  * REST API v1 for time-travel debugging.
  */
+@PreAuthorize("hasAuthority('admin')")
 @RestController
 @RequestMapping("/api/v1/runs/{runId}")
 public class TimeTravelController {

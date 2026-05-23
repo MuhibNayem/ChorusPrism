@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.jspecify.annotations.NonNull;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.Objects;
 /**
  * REST API v1 for SQL query execution on trace data.
  */
+@PreAuthorize("hasAuthority('admin')")
 @RestController
 @RequestMapping("/api/v1/query")
 public class SqlQueryController {

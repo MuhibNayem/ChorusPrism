@@ -35,6 +35,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.aspectj:aspectjweaver:1.9.22")
     implementation("org.springframework.boot:spring-boot-starter-mail:4.0.0")
 
@@ -44,6 +45,8 @@ dependencies {
 
     // Security
     implementation("org.springframework.security:spring-security-crypto:6.5.0")
+    implementation("org.springframework.security:spring-security-config:6.5.0")
+    implementation("org.springframework.security:spring-security-web:6.5.0")
 
     // JWT
     implementation("io.jsonwebtoken:jjwt-api:0.12.6")
@@ -70,6 +73,9 @@ dependencies {
 
     // OpenAPI / Swagger
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0")
+
+    // Structured logging
+    implementation("net.logstash.logback:logstash-logback-encoder:8.0")
 
     // Null safety
     compileOnly("org.jspecify:jspecify:1.0.0")

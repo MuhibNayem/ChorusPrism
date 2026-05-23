@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Install Gradle 9.1.0
 ENV GRADLE_VERSION=9.1.0
-RUN apk add --no-cache wget unzip \
+RUN apk add --no-cache wget unzip git \
     && wget -q https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip \
     && unzip -q gradle-${GRADLE_VERSION}-bin.zip \
     && rm gradle-${GRADLE_VERSION}-bin.zip \

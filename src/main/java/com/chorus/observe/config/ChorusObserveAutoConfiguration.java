@@ -36,9 +36,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -59,6 +61,7 @@ import java.util.List;
 @Configuration
 @EnableConfigurationProperties(ChorusObserveProperties.class)
 @EnableScheduling
+@EnableMethodSecurity
 @ConditionalOnProperty(prefix = "chorus.observe", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class ChorusObserveAutoConfiguration {
 
@@ -375,8 +378,11 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(name = "chorusObserveHealthIndicator")
-    public ChorusObserveHealthIndicator chorusObserveHealthIndicator(DataSource chorusObserveDataSource) {
-        return new ChorusObserveHealthIndicator(chorusObserveDataSource);
+    public ChorusObserveHealthIndicator chorusObserveHealthIndicator(
+            @NonNull DataSource chorusObserveDataSource,
+            @NonNull SpanStore spanStore,
+            @NonNull ObjectProvider<Server> grpcServerProvider) {
+        return new ChorusObserveHealthIndicator(chorusObserveDataSource, spanStore, grpcServerProvider);
     }
 
     // ============================================================
@@ -784,6 +790,16 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public FilterRegistrationBean<TracingFilter> tracingFilter() {
+        FilterRegistrationBean<TracingFilter> registration = new FilterRegistrationBean<>();
+        registration.setFilter(new TracingFilter());
+        registration.addUrlPatterns("/api/*", "/v1/*");
+        registration.setOrder(1);
+        return registration;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public FilterRegistrationBean<RateLimitFilter> rateLimitFilter(@NonNull ChorusObserveProperties properties) {
         FilterRegistrationBean<RateLimitFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new RateLimitFilter(properties.getRateLimit().getMaxRequestsPerMinute(), properties.getRateLimit().isEnabled()));
@@ -833,6 +849,20 @@ public class ChorusObserveAutoConfiguration {
     public WebMvcConfigurer chorusObserveWebMvcConfigurer(@NonNull RequestLoggingInterceptor interceptor, @NonNull ApiVersionInterceptor apiVersionInterceptor) {
         return new WebMvcConfigurer() {
             @Override
+            public void addCorsMappings(@NonNull CorsRegistry registry) {
+                registry.addMapping("/api/**")
+                    .allowedOrigins("*")
+                    .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                    .allowedHeaders("*")
+                    .maxAge(3600);
+                registry.addMapping("/v1/**")
+                    .allowedOrigins("*")
+                    .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                    .allowedHeaders("*")
+                    .maxAge(3600);
+            }
+
+            @Override
             public void addInterceptors(@NonNull InterceptorRegistry registry) {
                 registry.addInterceptor(apiVersionInterceptor).addPathPatterns("/api/**", "/v1/**");
                 registry.addInterceptor(interceptor).addPathPatterns("/api/**", "/v1/**");
@@ -846,7 +876,7 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnProperty(prefix = "chorus.observe.grpc", name = "enabled", havingValue = "true", matchIfMissing = true)
-    public Server grpcServer(@NonNull OtlpIngestionService ingestionService, @NonNull ChorusObserveProperties properties) {
+    public GrpcServerLifecycle grpcServerLifecycle(@NonNull OtlpIngestionService ingestionService, @NonNull ChorusObserveProperties properties) {
         int port = properties.getGrpc().getPort();
         Server server = ServerBuilder.forPort(port)
             .addService(new OtlpGrpcService(ingestionService))
@@ -856,8 +886,9 @@ public class ChorusObserveAutoConfiguration {
             LOG.info("Chorus Observe OTLP gRPC server started on port {}", port);
         } catch (Exception e) {
             LOG.error("Failed to start gRPC server on port {}", port, e);
+            throw new IllegalStateException("Failed to start gRPC server on port " + port, e);
         }
-        return server;
+        return new GrpcServerLifecycle(server);
     }
 
     @Bean
@@ -901,8 +932,15 @@ public class ChorusObserveAutoConfiguration {
     public JwtTokenService jwtTokenService(@NonNull ChorusObserveProperties properties) {
         String secret = properties.getJwt().getSecret();
         if (secret == null || secret.isBlank()) {
-            secret = java.util.UUID.randomUUID().toString() + java.util.UUID.randomUUID().toString();
-            LOG.warn("No JWT secret configured. Using auto-generated secret (will break sessions on restart). Set chorus.observe.jwt.secret.");
+            throw new IllegalStateException(
+                "JWT secret is not configured. Set chorus.observe.jwt.secret or the JWT_SECRET environment variable. " +
+                "This is required for session persistence across restarts."
+            );
+        }
+        if (secret.length() < 32) {
+            throw new IllegalStateException(
+                "JWT secret must be at least 32 characters. Current length: " + secret.length()
+            );
         }
         return new JwtTokenService(secret, Duration.ofMinutes(properties.getJwt().getExpiryMinutes()));
     }

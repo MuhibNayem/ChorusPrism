@@ -64,12 +64,22 @@ services:
       CHORUS_OBSERVE_CLICKHOUSE_PASSWORD: chorus
       CHORUS_OBSERVE_GRPC_ENABLED: "true"
       CHORUS_OBSERVE_GRPC_PORT: "4317"
+      JWT_SECRET: ${JWT_SECRET:-chorus-observe-change-this-in-production-to-a-64-char-random-string}
+    # Uncomment for TLS:
+    # volumes:
+    #   - ./certs:/app/certs:ro
     depends_on:
       postgres:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+    networks:
+      - chorus-network
 
 volumes:
   pgdata:
   chdata:
+
+networks:
+  chorus-network:
+    driver: bridge

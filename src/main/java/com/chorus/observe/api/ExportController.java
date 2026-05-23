@@ -7,11 +7,13 @@ import com.chorus.observe.persistence.ExportJobRepository;
 import com.chorus.observe.security.TenantContext;
 import org.jspecify.annotations.NonNull;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
 
+@PreAuthorize("hasAuthority('admin')")
 @RestController
 @RequestMapping("/api/v1/exports")
 public class ExportController {

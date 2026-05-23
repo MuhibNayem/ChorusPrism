@@ -28,7 +28,10 @@ public class ApiKeyAuthFilter implements Filter {
 
     private static final Logger LOG = LoggerFactory.getLogger(ApiKeyAuthFilter.class);
     private static final Set<String> PUBLIC_PATHS = Set.of(
-        "/actuator/health", "/v3/api-docs", "/swagger-ui", "/swagger-ui.html", "/webjars/"
+        "/actuator/health", "/actuator/info", "/actuator/prometheus", "/actuator/metrics",
+        "/v3/api-docs", "/swagger-ui", "/swagger-ui.html", "/webjars/",
+        "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/forgot-password",
+        "/api/v1/auth/reset-password", "/api/v1/auth/verify-email"
     );
 
     private final ApiKeyRepository apiKeyRepository;

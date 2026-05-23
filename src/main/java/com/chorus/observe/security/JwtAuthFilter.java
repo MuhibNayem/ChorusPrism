@@ -27,10 +27,23 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         this.enabled = enabled;
     }
 
+    private static final Set<String> PUBLIC_PATHS = Set.of(
+        "/actuator/health", "/actuator/info", "/actuator/prometheus", "/actuator/metrics",
+        "/v3/api-docs", "/swagger-ui", "/swagger-ui.html", "/webjars/",
+        "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/forgot-password",
+        "/api/v1/auth/reset-password", "/api/v1/auth/verify-email"
+    );
+
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response,
                                     @NonNull FilterChain filterChain) throws ServletException, IOException {
         if (!enabled) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String path = request.getRequestURI();
+        if (PUBLIC_PATHS.stream().anyMatch(path::startsWith)) {
             filterChain.doFilter(request, response);
             return;
         }

@@ -10,6 +10,8 @@ chorus:
     enabled: true
     server:
       port: 8080
+      max-request-size-mb: 10
+      max-file-size-mb: 10
     database:
       # Explicit dedicated database (recommended for production)
       url: jdbc:postgresql://localhost:5432/chorus_observe
@@ -17,9 +19,71 @@ chorus:
       password: chorus
       max-pool-size: 20
       migrate-on-startup: true
+      read-only-role: ""
+    clickhouse:
+      url: jdbc:clickhouse://localhost:8123/chorus_observe
+      username: chorus
+      password: chorus
+      max-pool-size: 20
     grpc:
       enabled: true
       port: 4317
+    jwt:
+      secret: "${JWT_SECRET:}"
+      expiry-minutes: 60
+    security:
+      api-key-enabled: false
+    rate-limit:
+      enabled: false
+      max-requests-per-minute: 100
+
+# Spring Boot server limits (defense against oversized payloads)
+server:
+  port: 8080
+  tomcat:
+    max-http-form-post-size: 10MB
+    max-swallow-size: 10MB
+  compression:
+    enabled: true
+
+# TLS (uncomment and set paths for production)
+#  ssl:
+#    enabled: true
+#    key-store: file:/app/certs/keystore.p12
+#    key-store-password: ${KEYSTORE_PASSWORD:changeit}
+#    key-store-type: PKCS12
+#    key-alias: chorus-observe
+
+# Management / Actuator endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+    prometheus:
+      enabled: true
+    metrics:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: chorus-observe-server
+
+# Structured JSON logging
+logging:
+  structured:
+    format:
+      console: json
+  level:
+    com.chorus.observe: INFO
+    org.springframework.web: WARN
 
 spring:
   jackson:
