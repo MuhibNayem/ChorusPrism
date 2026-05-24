@@ -20,6 +20,19 @@ public class ChorusObserveProperties {
     private Lock lock = new Lock();
     private Jwt jwt = new Jwt();
     private Sampling sampling = new Sampling();
+    private Frontend frontend = new Frontend();
+    private Export export = new Export();
+    private Pricing pricing = new Pricing();
+    private IngestionQueue ingestionQueue = new IngestionQueue();
+
+    public Export getExport() { return export; }
+    public void setExport(Export export) { this.export = export; }
+
+    public Pricing getPricing() { return pricing; }
+    public void setPricing(Pricing pricing) { this.pricing = pricing; }
+
+    public IngestionQueue getIngestionQueue() { return ingestionQueue; }
+    public void setIngestionQueue(IngestionQueue ingestionQueue) { this.ingestionQueue = ingestionQueue; }
 
     public Lock getLock() { return lock; }
 
@@ -29,6 +42,9 @@ public class ChorusObserveProperties {
     public Sampling getSampling() { return sampling; }
     public void setSampling(Sampling sampling) { this.sampling = sampling; }
     public void setLock(Lock lock) { this.lock = lock; }
+
+    public Frontend getFrontend() { return frontend; }
+    public void setFrontend(Frontend frontend) { this.frontend = frontend; }
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -192,5 +208,45 @@ public class ChorusObserveProperties {
         public void setRate(double rate) { this.rate = rate; }
         public String getStrategy() { return strategy; }
         public void setStrategy(String strategy) { this.strategy = strategy; }
+    }
+
+    public static class Frontend {
+        private String url = "http://localhost:3000";
+
+        public String getUrl() { return url; }
+        public void setUrl(String url) { this.url = url; }
+    }
+
+    public static class Export {
+        private String encryptionMasterKey = "";
+
+        public String getEncryptionMasterKey() { return encryptionMasterKey; }
+        public void setEncryptionMasterKey(String encryptionMasterKey) { this.encryptionMasterKey = encryptionMasterKey; }
+    }
+
+    public static class Pricing {
+        private boolean dynamicEnabled = true;
+        private String url = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
+        private long refreshIntervalHours = 24;
+
+        public boolean isDynamicEnabled() { return dynamicEnabled; }
+        public void setDynamicEnabled(boolean dynamicEnabled) { this.dynamicEnabled = dynamicEnabled; }
+        public String getUrl() { return url; }
+        public void setUrl(String url) { this.url = url; }
+        public long getRefreshIntervalHours() { return refreshIntervalHours; }
+        public void setRefreshIntervalHours(long refreshIntervalHours) { this.refreshIntervalHours = refreshIntervalHours; }
+    }
+
+    public static class IngestionQueue {
+        private boolean enabled = true;
+        private int batchSize = 500;
+        private long pollIntervalMillis = 1000;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public int getBatchSize() { return batchSize; }
+        public void setBatchSize(int batchSize) { this.batchSize = batchSize; }
+        public long getPollIntervalMillis() { return pollIntervalMillis; }
+        public void setPollIntervalMillis(long pollIntervalMillis) { this.pollIntervalMillis = pollIntervalMillis; }
     }
 }

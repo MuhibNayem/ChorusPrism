@@ -13,6 +13,7 @@ import java.util.Objects;
  */
 public record Run(
     @NonNull String runId,
+    @NonNull String tenantId,
     @NonNull String framework,
     @NonNull String agentId,
     @Nullable String model,
@@ -28,6 +29,7 @@ public record Run(
 
     public Run {
         Objects.requireNonNull(runId, "runId");
+        Objects.requireNonNull(tenantId, "tenantId");
         Objects.requireNonNull(framework, "framework");
         Objects.requireNonNull(agentId, "agentId");
         Objects.requireNonNull(startTime, "startTime");

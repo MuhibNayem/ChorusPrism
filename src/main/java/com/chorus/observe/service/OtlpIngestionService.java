@@ -3,6 +3,9 @@ package com.chorus.observe.service;
 import com.chorus.observe.model.*;
 import com.chorus.observe.persistence.AgentRepository;
 import com.chorus.observe.persistence.RunRepository;
+import com.chorus.observe.security.TenantContext;
+import com.chorus.observe.config.ChorusObserveProperties;
+import com.chorus.observe.persistence.IngestionQueueRepository;
 import com.chorus.observe.store.SpanStore;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,6 +25,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import com.chorus.observe.event.RunCompletedEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import jakarta.annotation.PreDestroy;
 
 /**
@@ -53,15 +59,20 @@ public class OtlpIngestionService {
     private final SpanStreamService streamService;
     private final MetricsService metricsService;
     private final AgentRepository agentRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     private final ConcurrentHashMap<String, RunAccumulator> runAccumulators = new ConcurrentHashMap<>();
     private final ScheduledExecutorService evictionScheduler;
+
+    private final ChorusObserveProperties properties;
+    private final IngestionQueueRepository queueRepository;
+    private final ScheduledExecutorService queueScheduler;
 
     public OtlpIngestionService(
             @NonNull RunRepository runRepository,
             @NonNull SpanStore spanStore,
             @NonNull ObjectMapper mapper) {
-        this(runRepository, spanStore, mapper, null, null, null);
+        this(runRepository, spanStore, mapper, null, null, null, null);
     }
 
     public OtlpIngestionService(
@@ -69,7 +80,7 @@ public class OtlpIngestionService {
             @NonNull SpanStore spanStore,
             @NonNull ObjectMapper mapper,
             SpanStreamService streamService) {
-        this(runRepository, spanStore, mapper, streamService, null, null);
+        this(runRepository, spanStore, mapper, streamService, null, null, null);
     }
 
     public OtlpIngestionService(
@@ -78,7 +89,7 @@ public class OtlpIngestionService {
             @NonNull ObjectMapper mapper,
             SpanStreamService streamService,
             @Nullable MetricsService metricsService) {
-        this(runRepository, spanStore, mapper, streamService, metricsService, null);
+        this(runRepository, spanStore, mapper, streamService, metricsService, null, null);
     }
 
     public OtlpIngestionService(
@@ -88,12 +99,27 @@ public class OtlpIngestionService {
             SpanStreamService streamService,
             @Nullable MetricsService metricsService,
             @Nullable AgentRepository agentRepository) {
+        this(runRepository, spanStore, mapper, streamService, metricsService, agentRepository, null);
+    }
+
+    public OtlpIngestionService(
+            @NonNull RunRepository runRepository,
+            @NonNull SpanStore spanStore,
+            @NonNull ObjectMapper mapper,
+            SpanStreamService streamService,
+            @Nullable MetricsService metricsService,
+            @Nullable AgentRepository agentRepository,
+            @Nullable ApplicationEventPublisher eventPublisher) {
         this.runRepository = Objects.requireNonNull(runRepository);
         this.spanStore = Objects.requireNonNull(spanStore);
         this.mapper = Objects.requireNonNull(mapper);
         this.streamService = streamService;
         this.metricsService = metricsService;
         this.agentRepository = agentRepository;
+        this.eventPublisher = eventPublisher;
+        this.properties = null;
+        this.queueRepository = null;
+        this.queueScheduler = null;
         this.evictionScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "chorus-observe-accumulator-eviction");
             t.setDaemon(true);
@@ -103,12 +129,73 @@ public class OtlpIngestionService {
             this::evictStaleAccumulators, EVICTION_INTERVAL_MINUTES, EVICTION_INTERVAL_MINUTES, TimeUnit.MINUTES);
     }
 
+    public OtlpIngestionService(
+            @NonNull RunRepository runRepository,
+            @NonNull SpanStore spanStore,
+            @NonNull ObjectMapper mapper,
+            @NonNull ChorusObserveProperties properties,
+            @NonNull IngestionQueueRepository queueRepository,
+            SpanStreamService streamService,
+            @Nullable MetricsService metricsService,
+            @Nullable AgentRepository agentRepository,
+            @Nullable ApplicationEventPublisher eventPublisher) {
+        this.runRepository = Objects.requireNonNull(runRepository);
+        this.spanStore = Objects.requireNonNull(spanStore);
+        this.mapper = Objects.requireNonNull(mapper);
+        this.properties = Objects.requireNonNull(properties);
+        this.queueRepository = Objects.requireNonNull(queueRepository);
+        this.streamService = streamService;
+        this.metricsService = metricsService;
+        this.agentRepository = agentRepository;
+        this.eventPublisher = eventPublisher;
+        this.evictionScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "chorus-observe-accumulator-eviction");
+            t.setDaemon(true);
+            return t;
+        });
+        this.evictionScheduler.scheduleAtFixedRate(
+            this::evictStaleAccumulators, EVICTION_INTERVAL_MINUTES, EVICTION_INTERVAL_MINUTES, TimeUnit.MINUTES);
+
+        if (properties.getIngestionQueue().isEnabled()) {
+            this.queueScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "chorus-observe-ingestion-queue-poller");
+                t.setDaemon(true);
+                return t;
+            });
+            long pollInterval = properties.getIngestionQueue().getPollIntervalMillis();
+            this.queueScheduler.scheduleWithFixedDelay(
+                this::pollAndProcessQueue, pollInterval, pollInterval, TimeUnit.MILLISECONDS);
+            LOG.info("Asynchronous ingestion queue poller scheduled with interval {}ms", pollInterval);
+        } else {
+            this.queueScheduler = null;
+        }
+    }
+
     /**
      * Ingest a batch of OTLP spans. All spans in the batch are persisted in bulk.
      */
     @Timed(value = "ingestion.spans.batch", description = "Time spent ingesting a batch of spans")
     @Counted(value = "ingestion.spans.batches", description = "Total number of span batch ingestions")
     public void ingestSpans(@NonNull List<OtlpSpan> spans) {
+        if (spans.isEmpty()) return;
+
+        if (properties != null && properties.getIngestionQueue().isEnabled() && queueRepository != null) {
+            try {
+                queueRepository.enqueue(spans);
+                LOG.debug("Enqueued {} spans to database outbox", spans.size());
+            } catch (Exception e) {
+                LOG.warn("Failed to enqueue spans to database outbox; falling back to direct ingestion: {}", e.getMessage());
+                ingestSpansInternal(spans);
+            }
+        } else {
+            ingestSpansInternal(spans);
+        }
+    }
+
+    /**
+     * Perform the actual extraction, run accumulation, and bulk persistence of spans.
+     */
+    public void ingestSpansInternal(@NonNull List<OtlpSpan> spans) {
         if (spans.isEmpty()) return;
 
         List<Span> allSpans = new ArrayList<>(spans.size());
@@ -175,46 +262,82 @@ public class OtlpIngestionService {
         }
     }
 
+    /**
+     * Poll and process queued outbox spans in background virtual-thread scheduled executor.
+     */
+    private void pollAndProcessQueue() {
+        if (queueRepository == null) return;
+        try {
+            int batchSize = properties.getIngestionQueue().getBatchSize();
+            List<IngestionQueueRepository.QueueRecord> records = queueRepository.fetchBatch(batchSize);
+            if (records.isEmpty()) return;
+
+            List<OtlpSpan> spans = new ArrayList<>(records.size());
+            List<String> queueIds = new ArrayList<>(records.size());
+            for (var record : records) {
+                spans.add(record.span());
+                queueIds.add(record.queueId());
+            }
+
+            // Ingest these spans in bulk using the internal logic
+            ingestSpansInternal(spans);
+
+            // Dequeue completed records from the outbox table
+            queueRepository.dequeue(queueIds);
+            LOG.debug("Successfully processed and dequeued {} spans", records.size());
+        } catch (Exception e) {
+            LOG.error("Failed to poll or process ingestion queue records: {}", e.getMessage(), e);
+        }
+    }
+
     private void accumulateRun(@NonNull String runId, @NonNull OtlpSpan otlp) {
         RunAccumulator acc = runAccumulators.computeIfAbsent(runId, k -> new RunAccumulator());
-        acc.lastAccessed = Instant.now();
+        synchronized (acc) {
+            acc.lastAccessed = Instant.now();
 
-        acc.framework = otlp.attributes().getOrDefault("chorus.framework", acc.framework).toString();
-        acc.agentId = otlp.attributes().getOrDefault("gen_ai.agent.id", acc.agentId).toString();
-        Object model = otlp.attributes().get("gen_ai.request.model");
-        if (model != null) {
-            acc.model = model.toString();
-        }
+            Object frameworkAttr = otlp.attributes().get("chorus.framework");
+            if (frameworkAttr != null) {
+                acc.framework = frameworkAttr.toString();
+            }
+            Object agentIdAttr = otlp.attributes().get("gen_ai.agent.id");
+            if (agentIdAttr != null) {
+                acc.agentId = agentIdAttr.toString();
+            }
+            Object model = otlp.attributes().get("gen_ai.request.model");
+            if (model != null) {
+                acc.model = model.toString();
+            }
 
-        if (acc.startTime == null || otlp.startTime().isBefore(acc.startTime)) {
-            acc.startTime = otlp.startTime();
-        }
-        if (acc.endTime == null || (otlp.endTime() != null && otlp.endTime().isAfter(acc.endTime))) {
-            acc.endTime = otlp.endTime();
-        }
+            if (acc.startTime == null || otlp.startTime().isBefore(acc.startTime)) {
+                acc.startTime = otlp.startTime();
+            }
+            if (acc.endTime == null || (otlp.endTime() != null && otlp.endTime().isAfter(acc.endTime))) {
+                acc.endTime = otlp.endTime();
+            }
 
-        Object inputTokens = otlp.attributes().get("gen_ai.usage.input_tokens");
-        if (inputTokens instanceof Number n) {
-            acc.totalTokens += n.intValue();
-        }
-        Object outputTokens = otlp.attributes().get("gen_ai.usage.output_tokens");
-        if (outputTokens instanceof Number n) {
-            acc.totalTokens += n.intValue();
-        }
-        Object cost = otlp.attributes().get("chorus.cost_usd");
-        if (cost instanceof Number n) {
-            acc.totalCost = acc.totalCost.add(BigDecimal.valueOf(n.doubleValue()));
-        }
+            Object inputTokens = otlp.attributes().get("gen_ai.usage.input_tokens");
+            if (inputTokens instanceof Number n) {
+                acc.totalTokens += n.intValue();
+            }
+            Object outputTokens = otlp.attributes().get("gen_ai.usage.output_tokens");
+            if (outputTokens instanceof Number n) {
+                acc.totalTokens += n.intValue();
+            }
+            Object cost = otlp.attributes().get("chorus.cost_usd");
+            if (cost instanceof Number n) {
+                acc.totalCost = acc.totalCost.add(BigDecimal.valueOf(n.doubleValue()));
+            }
 
-        if (otlp.statusCode() == 2) { // ERROR
-            acc.status = Run.Status.ERROR;
-        } else if (acc.status == Run.Status.RUNNING && otlp.endTime() != null) {
-            acc.status = Run.Status.SUCCESS;
-        }
+            if (otlp.statusCode() == 2) { // ERROR
+                acc.status = Run.Status.ERROR;
+            } else if (acc.status == Run.Status.RUNNING && otlp.endTime() != null) {
+                acc.status = Run.Status.SUCCESS;
+            }
 
-        if (agentRepository != null && !acc.agentUpserted) {
-            acc.agentUpserted = true;
-            agentRepository.upsertFromRun(acc.agentId, acc.framework);
+            if (agentRepository != null && !acc.agentUpserted) {
+                acc.agentUpserted = true;
+                agentRepository.upsertFromRun(acc.agentId, acc.framework);
+            }
         }
     }
 
@@ -222,29 +345,43 @@ public class OtlpIngestionService {
         RunAccumulator acc = runAccumulators.get(runId);
         if (acc == null || acc.startTime == null) return;
 
-        long latencyMs = 0;
-        if (acc.endTime != null) {
-            latencyMs = Duration.between(acc.startTime, acc.endTime).toMillis();
+        synchronized (acc) {
+            long latencyMs = 0;
+            if (acc.endTime != null) {
+                latencyMs = Duration.between(acc.startTime, acc.endTime).toMillis();
+            }
+
+            Map<String, String> tags = new HashMap<>();
+            Map<String, Object> metadata = new HashMap<>();
+
+            String tenantId = TenantContext.getTenantIdOrNull();
+            if (tenantId == null) {
+                tenantId = "default";
+            }
+
+            Run run = new Run(
+                runId,
+                tenantId,
+                acc.framework,
+                acc.agentId,
+                acc.model.isEmpty() ? null : acc.model,
+                acc.startTime,
+                acc.endTime,
+                acc.status,
+                tags,
+                metadata,
+                acc.totalTokens,
+                acc.totalCost.setScale(8, RoundingMode.HALF_UP),
+                latencyMs
+            );
+            runRepository.save(run);
+
+            if (eventPublisher != null && acc.endTime != null && !acc.completionEventPublished
+                && (acc.status == Run.Status.SUCCESS || acc.status == Run.Status.ERROR)) {
+                acc.completionEventPublished = true;
+                eventPublisher.publishEvent(new RunCompletedEvent(this, runId, tenantId, acc.status));
+            }
         }
-
-        Map<String, String> tags = new HashMap<>();
-        Map<String, Object> metadata = new HashMap<>();
-
-        Run run = new Run(
-            runId,
-            acc.framework,
-            acc.agentId,
-            acc.model.isEmpty() ? null : acc.model,
-            acc.startTime,
-            acc.endTime,
-            acc.status,
-            tags,
-            metadata,
-            acc.totalTokens,
-            acc.totalCost.setScale(8, RoundingMode.HALF_UP),
-            latencyMs
-        );
-        runRepository.save(run);
     }
 
     private void evictStaleAccumulators() {
@@ -414,6 +551,7 @@ public class OtlpIngestionService {
         BigDecimal totalCost = BigDecimal.ZERO;
         Instant lastAccessed = Instant.now();
         boolean agentUpserted = false;
+        boolean completionEventPublished = false;
     }
 
     /**
@@ -435,12 +573,21 @@ public class OtlpIngestionService {
     @PreDestroy
     public void close() {
         evictionScheduler.shutdown();
+        if (queueScheduler != null) {
+            queueScheduler.shutdown();
+        }
         try {
             if (!evictionScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
                 evictionScheduler.shutdownNow();
             }
+            if (queueScheduler != null && !queueScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                queueScheduler.shutdownNow();
+            }
         } catch (InterruptedException e) {
             evictionScheduler.shutdownNow();
+            if (queueScheduler != null) {
+                queueScheduler.shutdownNow();
+            }
             Thread.currentThread().interrupt();
         }
     }

@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.DatasetItem;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,9 +20,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/**
- * JDBC repository for dataset items.
- */
 public class DatasetItemRepository {
 
     private final JdbcTemplate jdbc;
@@ -35,9 +33,10 @@ public class DatasetItemRepository {
     }
 
     public void save(@NonNull DatasetItem item) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO dataset_items (item_id, dataset_id, input, expected_output, metadata, tags, created_at)
-            VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?)
+            INSERT INTO dataset_items (item_id, dataset_id, input, expected_output, metadata, tags, created_at, tenant_id)
+            VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?)
             ON CONFLICT (item_id) DO UPDATE SET
                 dataset_id = EXCLUDED.dataset_id,
                 input = EXCLUDED.input,
@@ -48,12 +47,18 @@ public class DatasetItemRepository {
         jdbc.update(sql,
             item.itemId(), item.datasetId(), item.input(), item.expectedOutput(),
             toJson(item.metadata()), toJson(item.tags()),
-            Timestamp.from(item.createdAt())
+            Timestamp.from(item.createdAt()),
+            tenantId != null ? tenantId : "default"
         );
     }
 
     public @NonNull Optional<DatasetItem> findById(@NonNull String itemId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM dataset_items WHERE item_id = ? AND tenant_id = ?", rowMapper, itemId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM dataset_items WHERE item_id = ?", rowMapper, itemId));
         } catch (EmptyResultDataAccessException e) {
@@ -62,22 +67,45 @@ public class DatasetItemRepository {
     }
 
     public @NonNull List<DatasetItem> findByDatasetId(@NonNull String datasetId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM dataset_items WHERE dataset_id = ? AND tenant_id = ? ORDER BY created_at", rowMapper, datasetId, tenantId);
+        }
         return jdbc.query("SELECT * FROM dataset_items WHERE dataset_id = ? ORDER BY created_at", rowMapper, datasetId);
     }
 
     public @NonNull List<DatasetItem> findByDatasetId(@NonNull String datasetId, int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM dataset_items WHERE dataset_id = ? AND tenant_id = ? ORDER BY created_at LIMIT ? OFFSET ?", rowMapper, datasetId, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM dataset_items WHERE dataset_id = ? ORDER BY created_at LIMIT ? OFFSET ?", rowMapper, datasetId, limit, offset);
     }
 
     public void deleteById(@NonNull String itemId) {
-        jdbc.update("DELETE FROM dataset_items WHERE item_id = ?", itemId);
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            jdbc.update("DELETE FROM dataset_items WHERE item_id = ? AND tenant_id = ?", itemId, tenantId);
+        } else {
+            jdbc.update("DELETE FROM dataset_items WHERE item_id = ?", itemId);
+        }
     }
 
     public void deleteByDatasetId(@NonNull String datasetId) {
-        jdbc.update("DELETE FROM dataset_items WHERE dataset_id = ?", datasetId);
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            jdbc.update("DELETE FROM dataset_items WHERE dataset_id = ? AND tenant_id = ?", datasetId, tenantId);
+        } else {
+            jdbc.update("DELETE FROM dataset_items WHERE dataset_id = ?", datasetId);
+        }
     }
 
     public long countByDatasetId(@NonNull String datasetId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM dataset_items WHERE dataset_id = ? AND tenant_id = ?", Long.class, datasetId, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM dataset_items WHERE dataset_id = ?", Long.class, datasetId);
         return count != null ? count : 0L;
     }

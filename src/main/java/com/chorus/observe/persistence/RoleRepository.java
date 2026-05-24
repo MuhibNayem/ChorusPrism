@@ -69,6 +69,15 @@ public class RoleRepository {
         return jdbc.query("SELECT * FROM roles WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
     }
 
+    public @NonNull Optional<Role> findByTenantIdAndName(@NonNull String tenantId, @NonNull String name) {
+        try {
+            return Optional.ofNullable(jdbc.queryForObject(
+                "SELECT * FROM roles WHERE tenant_id = ? AND name = ?", rowMapper, tenantId, name));
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        }
+    }
+
     public long countByTenant(@NonNull String tenantId) {
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM roles WHERE tenant_id = ?", Long.class, tenantId);
         return count != null ? count : 0L;

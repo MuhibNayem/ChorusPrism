@@ -20,6 +20,13 @@ public class InMemoryToolCallRepository extends ToolCallRepository {
     }
 
     @Override
+    public void saveAll(List<ToolCall> calls) {
+        for (ToolCall call : calls) {
+            save(call);
+        }
+    }
+
+    @Override
     public List<ToolCall> findByRunId(String runId) {
         return store.stream()
             .filter(c -> c.runId().equals(runId))

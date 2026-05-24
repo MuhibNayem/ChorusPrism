@@ -10,6 +10,7 @@ import com.chorus.observe.persistence.ReplayRunRepository;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
+import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -104,6 +105,7 @@ public class TimeTravelService {
         return new PagedResult<>(breakpointRepository.findActiveByRunId(runId, size, offset), breakpointRepository.countActiveByRunId(runId), page, size);
     }
 
+    @Transactional
     public void resolveBreakpoint(@NonNull String breakpointId) {
         Optional<Breakpoint> opt = breakpointRepository.findById(breakpointId);
         if (opt.isEmpty()) return;

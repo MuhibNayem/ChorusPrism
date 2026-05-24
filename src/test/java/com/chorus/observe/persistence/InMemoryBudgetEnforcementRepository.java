@@ -66,4 +66,25 @@ public class InMemoryBudgetEnforcementRepository extends BudgetEnforcementReposi
     public long countActive() {
         return store.values().stream().filter(b -> b.status() == BudgetEnforcement.Status.ACTIVE).count();
     }
+
+    @Override
+    public int addSpendingAtomic(String enforcementId, java.math.BigDecimal delta) {
+        Optional<BudgetEnforcement> opt = findById(enforcementId);
+        if (opt.isEmpty()) return 0;
+        BudgetEnforcement current = opt.get();
+        java.math.BigDecimal newValue = current.currentValue().add(delta);
+        BudgetEnforcement.Status newStatus = current.status();
+        if (newValue.compareTo(current.limitValue()) >= 0) {
+            newStatus = BudgetEnforcement.Status.EXCEEDED;
+        } else if (newValue.compareTo(current.limitValue().multiply(new java.math.BigDecimal("0.8"))) >= 0
+            && current.status() == BudgetEnforcement.Status.ACTIVE) {
+            newStatus = BudgetEnforcement.Status.WARNING;
+        }
+        save(new BudgetEnforcement(
+            current.enforcementId(), current.agentId(), current.budgetType(),
+            current.limitValue(), newValue, current.currency(),
+            newStatus, current.triggeredAt(), current.createdAt(), java.time.Instant.now()
+        ));
+        return 1;
+    }
 }

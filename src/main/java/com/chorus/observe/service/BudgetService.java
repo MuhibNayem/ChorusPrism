@@ -6,6 +6,7 @@ import com.chorus.observe.persistence.BudgetEnforcementRepository;
 import org.jspecify.annotations.NonNull;
 
 import java.math.BigDecimal;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -73,6 +74,7 @@ public class BudgetService {
         return opt.orElseThrow(() -> new IllegalStateException("Budget disappeared after atomic update: " + enforcementId));
     }
 
+    @Transactional
     public void pauseBudget(@NonNull String enforcementId) {
         Optional<BudgetEnforcement> opt = budgetEnforcementRepository.findById(enforcementId);
         if (opt.isEmpty()) return;
@@ -84,6 +86,7 @@ public class BudgetService {
         ));
     }
 
+    @Transactional
     public void resumeBudget(@NonNull String enforcementId) {
         Optional<BudgetEnforcement> opt = budgetEnforcementRepository.findById(enforcementId);
         if (opt.isEmpty()) return;

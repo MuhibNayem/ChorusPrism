@@ -20,6 +20,10 @@ import java.util.Objects;
 /**
  * PostgreSQL-backed {@link SpanStore}.
  * Uses the existing JDBC repositories for ACID span persistence.
+ * <p>
+ * All save operations are atomic per batch — if any span in a batch fails,
+ * the entire batch throws {@link SpanStoreException} so callers can retry
+ * or handle the failure explicitly. No silent data loss.
  */
 public class PostgresSpanStore implements SpanStore {
 
@@ -43,34 +47,34 @@ public class PostgresSpanStore implements SpanStore {
 
     @Override
     public void saveSpans(@NonNull List<Span> spans) {
-        for (Span span : spans) {
-            try {
-                spanRepository.save(span);
-            } catch (Exception e) {
-                LOG.warn("Failed to save span {}: {}", span.spanId(), e.getMessage());
-            }
+        if (spans.isEmpty()) return;
+        try {
+            spanRepository.saveAll(spans);
+        } catch (Exception e) {
+            LOG.error("Failed to batch save {} spans", spans.size(), e);
+            throw new SpanStoreException("Span batch save failed: " + e.getMessage(), e);
         }
     }
 
     @Override
     public void saveLlmCalls(@NonNull List<LlmCall> calls) {
-        for (LlmCall call : calls) {
-            try {
-                llmCallRepository.save(call);
-            } catch (Exception e) {
-                LOG.warn("Failed to save LLM call {}: {}", call.callId(), e.getMessage());
-            }
+        if (calls.isEmpty()) return;
+        try {
+            llmCallRepository.saveAll(calls);
+        } catch (Exception e) {
+            LOG.error("Failed to batch save {} LLM calls", calls.size(), e);
+            throw new SpanStoreException("LLM call batch save failed: " + e.getMessage(), e);
         }
     }
 
     @Override
     public void saveToolCalls(@NonNull List<ToolCall> calls) {
-        for (ToolCall call : calls) {
-            try {
-                toolCallRepository.save(call);
-            } catch (Exception e) {
-                LOG.warn("Failed to save tool call {}: {}", call.callId(), e.getMessage());
-            }
+        if (calls.isEmpty()) return;
+        try {
+            toolCallRepository.saveAll(calls);
+        } catch (Exception e) {
+            LOG.error("Failed to batch save {} tool calls", calls.size(), e);
+            throw new SpanStoreException("Tool call batch save failed: " + e.getMessage(), e);
         }
     }
 

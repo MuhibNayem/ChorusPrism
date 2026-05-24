@@ -10,8 +10,14 @@ import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
@@ -73,24 +79,42 @@ public class ApiKeyAuthFilter implements Filter {
         TenantContext.set(key.tenantId(), key.userId(), key.keyHash());
         req.setAttribute("scopes", Set.copyOf(key.scopes()));
 
+        var authorities = key.scopes().stream()
+            .map(SimpleGrantedAuthority::new)
+            .toList();
+        var authToken = new UsernamePasswordAuthenticationToken(
+            key.userId() != null ? key.userId() : key.keyHash(), null, authorities);
+        SecurityContextHolder.getContext().setAuthentication(authToken);
+
         try {
             chain.doFilter(request, response);
         } finally {
+            SecurityContextHolder.clearContext();
             TenantContext.clear();
         }
     }
 
     private Optional<ApiKey> lookupKey(@NonNull String rawKey) {
-        // Keys are stored as bcrypt hashes, so we can't query by raw key directly.
-        // For enterprise scale with many keys, this is inefficient. A better approach
-        // would be to store a prefix index. For now, we scan recent active keys.
-        // Alternatively, we can hash with a fast hash (SHA-256) for lookup and verify bcrypt.
-        // Let's use a simple approach: the key format is cko_<uuid>, we can do a prefix-based scan.
-        // Actually, the simplest fix is to not hash API keys with bcrypt for lookup purposes.
-        // Instead, store a SHA-256 hash for lookup + bcrypt for verification if needed.
-        // For now, we'll iterate all non-revoked keys and check bcrypt. This is acceptable for small key counts.
-        // To optimize: we'll just use the raw key as the primary key hash for now (not bcrypt).
-        return apiKeyRepository.findByKeyHash(rawKey);
+        // API keys are stored as SHA-256 hashes for fast deterministic lookup.
+        String keyHash = sha256(rawKey);
+        return apiKeyRepository.findByKeyHash(keyHash);
+    }
+
+    private static @NonNull String sha256(@NonNull String input) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
+            return bytesToHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
+
+    private static @NonNull String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
     }
 
     private boolean isPublic(@NonNull String path) {

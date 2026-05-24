@@ -26,8 +26,8 @@ public class UserRepository {
 
     public void save(@NonNull User user) {
         String sql = """
-            INSERT INTO users (user_id, tenant_id, email, password_hash, display_name, status, last_login_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO users (user_id, tenant_id, email, password_hash, display_name, status, last_login_at, auth_source, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (user_id) DO UPDATE SET
                 tenant_id = EXCLUDED.tenant_id,
                 email = EXCLUDED.email,
@@ -35,12 +35,14 @@ public class UserRepository {
                 display_name = EXCLUDED.display_name,
                 status = EXCLUDED.status,
                 last_login_at = EXCLUDED.last_login_at,
+                auth_source = EXCLUDED.auth_source,
                 updated_at = EXCLUDED.updated_at
             """;
         jdbc.update(sql,
             user.userId(), user.tenantId(), user.email(), user.passwordHash(),
             user.displayName(), user.status().name(),
             user.lastLoginAt() != null ? Timestamp.from(user.lastLoginAt()) : null,
+            user.authSource().name(),
             Timestamp.from(user.createdAt()), Timestamp.from(user.updatedAt()));
     }
 
@@ -57,6 +59,15 @@ public class UserRepository {
         try {
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM users WHERE tenant_id = ? AND email = ?", rowMapper, tenantId, email));
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        }
+    }
+
+    public @NonNull Optional<User> findByEmailIgnoreCase(@NonNull String tenantId, @NonNull String email) {
+        try {
+            return Optional.ofNullable(jdbc.queryForObject(
+                "SELECT * FROM users WHERE tenant_id = ? AND LOWER(email) = LOWER(?)", rowMapper, tenantId, email));
         } catch (EmptyResultDataAccessException e) {
             return Optional.empty();
         }
@@ -90,6 +101,7 @@ public class UserRepository {
                 rs.getString("display_name"),
                 User.Status.valueOf(rs.getString("status")),
                 rs.getTimestamp("last_login_at") != null ? rs.getTimestamp("last_login_at").toInstant() : null,
+                User.AuthSource.valueOf(rs.getString("auth_source")),
                 rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant()
             );

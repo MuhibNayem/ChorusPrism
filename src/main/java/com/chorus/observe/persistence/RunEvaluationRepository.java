@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.RunEvaluation;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,10 +33,12 @@ public class RunEvaluationRepository {
     }
 
     public void save(@NonNull RunEvaluation evaluation) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO run_evaluations (evaluation_id, run_id, evaluator_id, score, passed, details)
-            VALUES (?, ?, ?, ?, ?, ?::jsonb)
+            INSERT INTO run_evaluations (evaluation_id, tenant_id, run_id, evaluator_id, score, passed, details)
+            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb)
             ON CONFLICT (evaluation_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 run_id = EXCLUDED.run_id,
                 evaluator_id = EXCLUDED.evaluator_id,
                 score = EXCLUDED.score,
@@ -43,13 +46,19 @@ public class RunEvaluationRepository {
                 details = EXCLUDED.details
             """;
         jdbc.update(sql,
-            evaluation.evaluationId(), evaluation.runId(), evaluation.evaluatorId(),
+            evaluation.evaluationId(), tenantId != null ? tenantId : "default", evaluation.runId(), evaluation.evaluatorId(),
             evaluation.score(), evaluation.passed(),
             evaluation.details() != null ? toJson(evaluation.details()) : "{}"
         );
     }
 
     public @NonNull List<RunEvaluation> findByRunId(@NonNull String runId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query(
+                "SELECT * FROM run_evaluations WHERE run_id = ? AND tenant_id = ? ORDER BY created_at DESC",
+                rowMapper, runId, tenantId);
+        }
         return jdbc.query(
             "SELECT * FROM run_evaluations WHERE run_id = ? ORDER BY created_at DESC",
             rowMapper, runId);
@@ -59,35 +68,73 @@ public class RunEvaluationRepository {
         if (runIds.isEmpty()) {
             return List.of();
         }
+        String tenantId = TenantContext.getTenantIdOrNull();
         String placeholders = String.join(",", Collections.nCopies(runIds.size(), "?"));
+        if (tenantId != null) {
+            return jdbc.query(
+                "SELECT * FROM run_evaluations WHERE run_id IN (" + placeholders + ") AND tenant_id = ? ORDER BY created_at DESC",
+                rowMapper, append(runIds.toArray(), tenantId));
+        }
         return jdbc.query(
             "SELECT * FROM run_evaluations WHERE run_id IN (" + placeholders + ") ORDER BY created_at DESC",
             rowMapper, runIds.toArray());
     }
 
     public @NonNull List<RunEvaluation> findByEvaluatorId(@NonNull String evaluatorId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query(
+                "SELECT * FROM run_evaluations WHERE evaluator_id = ? AND tenant_id = ? ORDER BY created_at DESC",
+                rowMapper, evaluatorId, tenantId);
+        }
         return jdbc.query(
             "SELECT * FROM run_evaluations WHERE evaluator_id = ? ORDER BY created_at DESC",
             rowMapper, evaluatorId);
     }
 
     public long countByEvaluatorId(@NonNull String evaluatorId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM run_evaluations WHERE evaluator_id = ? AND tenant_id = ?", Long.class, evaluatorId, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject(
             "SELECT COUNT(*) FROM run_evaluations WHERE evaluator_id = ?", Long.class, evaluatorId);
         return count != null ? count : 0L;
     }
 
     public double avgScoreByEvaluatorId(@NonNull String evaluatorId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Double avg = jdbc.queryForObject(
+                "SELECT AVG(score) FROM run_evaluations WHERE evaluator_id = ? AND tenant_id = ?", Double.class, evaluatorId, tenantId);
+            return avg != null ? avg : 0.0;
+        }
         Double avg = jdbc.queryForObject(
             "SELECT AVG(score) FROM run_evaluations WHERE evaluator_id = ?", Double.class, evaluatorId);
         return avg != null ? avg : 0.0;
     }
 
     public double avgScoreByEvaluatorIdLast24h(@NonNull String evaluatorId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Double avg = jdbc.queryForObject(
+                "SELECT AVG(score) FROM run_evaluations WHERE evaluator_id = ? AND created_at >= NOW() - INTERVAL '24 hours' AND tenant_id = ?",
+                Double.class, evaluatorId, tenantId);
+            return avg != null ? avg : 0.0;
+        }
         Double avg = jdbc.queryForObject(
             "SELECT AVG(score) FROM run_evaluations WHERE evaluator_id = ? AND created_at >= NOW() - INTERVAL '24 hours'",
             Double.class, evaluatorId);
         return avg != null ? avg : 0.0;
+    }
+
+    private static Object @NonNull [] append(Object @NonNull [] array, Object element) {
+        Object[] result = new Object[array.length + 1];
+        System.arraycopy(array, 0, result, 0, array.length);
+        result[array.length] = element;
+        return result;
     }
 
     private @NonNull String toJson(@NonNull Object value) {

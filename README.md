@@ -323,6 +323,23 @@ chorus:
 | `head_based` | Deterministic decision at trace start, cached for all spans |
 | `tail_based` | Keeps errors and high-latency traces regardless of rate |
 
+### 5.4 Transactional Ingestion Outbox Queue
+
+To prevent telemetry trace loss under massive cluster scaling or sudden container termination, Chorus Observe implements a high-performance **PostgreSQL-backed Transactional Outbox Queue**:
+
+1. **Transactional Enqueuing:** When traces are ingested via OTLP, they are immediately persisted into the `ingestion_queue` table under transaction safety.
+2. **Asynchronous Batching:** Background virtual thread workers poll the outbox queue, aggregating spans into large batches before flushing them to Postgres or ClickHouse.
+3. **Resilient Crash Recovery:** In the event of an abrupt application crash, un-flushed traces remain safely buffered in the database and are immediately processed by new container replicas on startup, ensuring **zero data loss**.
+
+```yaml
+chorus:
+  observe:
+    ingestion-queue:
+      enabled: true            # Enable transactional outbox queueing (default: true)
+      batch-size: 100          # Batch size for queue pollers
+      poll-interval-ms: 500    # Queue polling interval
+```
+
 ---
 
 ## 6. Span Storage
@@ -368,7 +385,14 @@ chorus:
       url: jdbc:clickhouse://...
 ```
 
-### 6.4 Real-Time Streaming
+### 6.4 Dynamic Resource Resiliency (Name Resolution Safety)
+
+To ensure enterprise-grade startup safety, Chorus Observe incorporates a dynamic conditional configuration system for database resources:
+
+* **Conditional Instantiation:** The application only initializes connection pools (like HikariCP) and triggers DNS lookups for databases when they are actively required by the selected `span-store` type.
+* **DNS/Unreachable Resiliency:** If ClickHouse is configured in the properties file (e.g. standard environment templates) but the target instance is offline or hostnames are unresolved (throwing `UnknownHostException`), the application **will not crash at boot** if `span-store` is set to `"postgresql"`. It ignores unused configurations and starts up normally, ensuring high resilience.
+
+### 6.5 Real-Time Streaming
 
 Subscribe to span streams via Server-Sent Events:
 
@@ -637,6 +661,22 @@ PricingTable table = new PricingTable()
         new BigDecimal("0.001"), new BigDecimal("0.002")));
 ```
 
+### 11.4 Asynchronous Dynamic Model Pricing
+
+To dynamically update model pricing at runtime without restarting the application:
+
+1. **Enable Dynamic Pricing:** Set `chorus.observe.pricing.dynamic-enabled: true`.
+2. **Dynamic Scheduled Sync:** Background virtual threads fetch and parse LiteLLM JSON catalogs automatically once every 24 hours.
+3. **High-Precision Calculations:** Utilizes `BigDecimal` arithmetic instead of double-precision float multiplication, ensuring cost precision (e.g. `0.015` exactly, preventing standard float multiplication artifacts like `0.015000000000000001`).
+
+```yaml
+chorus:
+  observe:
+    pricing:
+      dynamic-enabled: true
+      url: https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json # Custom URL allowed
+```
+
 ---
 
 ## 12. Prompt Management & A/B Testing
@@ -710,6 +750,14 @@ curl -X POST "http://localhost:8080/api/v1/monitoring/clusters/analyze?model=tex
 4. **Persist** — Stores clusters in `trace_clusters` with member counts and aggregate stats
 
 **Scalability:** Embeddings are capped at 50K per clustering job to prevent OOM.
+
+### 13.3 pgvector Database Integration
+
+To scale vector queries to millions of trace embeddings, Chorus Observe dynamically integrates PostgreSQL's `pgvector` extension:
+
+1. **Auto-Probing at Startup:** The repository automatically detects if the `vector_native` column and the pgvector extension are present in the active database.
+2. **Native SQL Similarity Search:** If pgvector is present, similarity queries utilize native cosine distance operations (`vector_native <=> ?::vector`) indexed via high-performance **HNSW (Hierarchical Navigable Small World)** indices.
+3. **Resilient Local Fallback:** If the extension is absent, the system degrades gracefully to an in-memory Vantage-Point (VP) Tree clusterer, running seamlessly across any standard PostgreSQL deployment without throwing errors.
 
 ---
 

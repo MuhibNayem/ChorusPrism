@@ -574,3 +574,20 @@ CREATE TABLE IF NOT EXISTS dashboard_widgets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_dashboard_widgets_dashboard ON dashboard_widgets(dashboard_id);
+
+CREATE TABLE IF NOT EXISTS ingestion_queue (
+    queue_id        VARCHAR(64) PRIMARY KEY,
+    trace_id        VARCHAR(64) NOT NULL,
+    span_id         VARCHAR(64) NOT NULL,
+    name            VARCHAR(256) NOT NULL,
+    start_time      TIMESTAMP NOT NULL,
+    end_time        TIMESTAMP,
+    kind            INT NOT NULL,
+    status_code     INT NOT NULL,
+    attributes      JSONB NOT NULL,
+    events          JSONB NOT NULL DEFAULT '[]',
+    parent_span_id  VARCHAR(64),
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ingestion_queue_created ON ingestion_queue(created_at);

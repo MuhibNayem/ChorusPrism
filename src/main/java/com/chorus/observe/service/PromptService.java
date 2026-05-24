@@ -10,6 +10,7 @@ import com.chorus.observe.persistence.PromptVersionRepository;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
+import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -69,6 +70,7 @@ public class PromptService {
         return tags.stream().map(t -> promptVersionRepository.findById(t.versionId())).flatMap(Optional::stream).toList();
     }
 
+    @Transactional
     public void deleteVersion(@NonNull String versionId) {
         promptTagRepository.deleteByVersionId(versionId);
         promptVersionRepository.deleteById(versionId);
@@ -113,6 +115,7 @@ public class PromptService {
         return new PagedResult<>(promptAbTestRepository.findAll(size, offset), promptAbTestRepository.count(), page, size);
     }
 
+    @Transactional
     public void completeAbTest(@NonNull String testId, @Nullable String winnerId, @Nullable Double pValue, @NonNull Map<String, Object> summaryMetrics) {
         Optional<PromptAbTest> opt = promptAbTestRepository.findById(testId);
         if (opt.isEmpty()) return;

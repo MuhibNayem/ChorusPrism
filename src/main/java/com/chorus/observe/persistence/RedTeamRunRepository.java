@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.RedTeamRun;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,10 +36,12 @@ public class RedTeamRunRepository {
     }
 
     public void save(@NonNull RedTeamRun run) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO red_team_runs (red_team_run_id, agent_config, status, total_scenarios, bypassed_count, blocked_count, summary_metrics, started_at, finished_at, created_at)
-            VALUES (?, ?::jsonb, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+            INSERT INTO red_team_runs (red_team_run_id, tenant_id, agent_config, status, total_scenarios, bypassed_count, blocked_count, summary_metrics, started_at, finished_at, created_at)
+            VALUES (?, ?, ?::jsonb, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
             ON CONFLICT (red_team_run_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 agent_config = EXCLUDED.agent_config,
                 status = EXCLUDED.status,
                 total_scenarios = EXCLUDED.total_scenarios,
@@ -49,7 +52,7 @@ public class RedTeamRunRepository {
                 finished_at = EXCLUDED.finished_at
             """;
         jdbc.update(sql,
-            run.redTeamRunId(), toJson(run.agentConfig()), run.status().name(),
+            run.redTeamRunId(), tenantId != null ? tenantId : "default", toJson(run.agentConfig()), run.status().name(),
             run.totalScenarios(), run.bypassedCount(), run.blockedCount(),
             toJson(run.summaryMetrics()),
             run.startedAt() != null ? Timestamp.from(run.startedAt()) : null,
@@ -59,7 +62,12 @@ public class RedTeamRunRepository {
     }
 
     public @NonNull Optional<RedTeamRun> findById(@NonNull String redTeamRunId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM red_team_runs WHERE red_team_run_id = ? AND tenant_id = ?", rowMapper, redTeamRunId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM red_team_runs WHERE red_team_run_id = ?", rowMapper, redTeamRunId));
         } catch (EmptyResultDataAccessException e) {
@@ -68,27 +76,53 @@ public class RedTeamRunRepository {
     }
 
     public @NonNull List<RedTeamRun> findAll() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM red_team_runs WHERE tenant_id = ? ORDER BY created_at DESC", rowMapper, tenantId);
+        }
         return jdbc.query("SELECT * FROM red_team_runs ORDER BY created_at DESC", rowMapper);
     }
 
     public @NonNull List<RedTeamRun> findAll(int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM red_team_runs WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM red_team_runs ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, limit, offset);
     }
 
     public long count() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM red_team_runs WHERE tenant_id = ?", Long.class, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM red_team_runs", Long.class);
         return count != null ? count : 0L;
     }
 
     public @NonNull List<RedTeamRun> findByStatus(RedTeamRun.Status status) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM red_team_runs WHERE status = ? AND tenant_id = ? ORDER BY created_at DESC", rowMapper, status.name(), tenantId);
+        }
         return jdbc.query("SELECT * FROM red_team_runs WHERE status = ? ORDER BY created_at DESC", rowMapper, status.name());
     }
 
     public @NonNull List<RedTeamRun> findByStatus(RedTeamRun.Status status, int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM red_team_runs WHERE status = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, status.name(), tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM red_team_runs WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, status.name(), limit, offset);
     }
 
     public long countByStatus(RedTeamRun.Status status) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM red_team_runs WHERE status = ? AND tenant_id = ?", Long.class, status.name(), tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM red_team_runs WHERE status = ?", Long.class, status.name());
         return count != null ? count : 0L;
     }

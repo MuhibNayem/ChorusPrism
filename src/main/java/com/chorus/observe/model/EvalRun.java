@@ -17,6 +17,7 @@ public record EvalRun(
     @NonNull Map<String, Object> agentConfig,
     @NonNull Map<String, Object> scorerConfig,
     int parallelism,
+    int minRuns,
     @NonNull Status status,
     int progressPercent,
     @NonNull Map<String, Object> summaryMetrics,
@@ -32,7 +33,20 @@ public record EvalRun(
         scorerConfig = scorerConfig != null ? Map.copyOf(scorerConfig) : Map.of();
         summaryMetrics = summaryMetrics != null ? Map.copyOf(summaryMetrics) : Map.of();
         if (parallelism < 1) parallelism = 1;
+        if (minRuns < 1) minRuns = 1;
         createdAt = createdAt != null ? createdAt : Instant.now();
+    }
+
+    /**
+     * Backward-compatible constructor for callers that don't specify minRuns.
+     */
+    public EvalRun(String evalRunId, String datasetId, String name,
+                   Map<String, Object> agentConfig, Map<String, Object> scorerConfig,
+                   int parallelism, Status status, int progressPercent,
+                   Map<String, Object> summaryMetrics, Instant startedAt,
+                   Instant finishedAt, Instant createdAt) {
+        this(evalRunId, datasetId, name, agentConfig, scorerConfig, parallelism, 1,
+            status, progressPercent, summaryMetrics, startedAt, finishedAt, createdAt);
     }
 
     public enum Status {

@@ -99,7 +99,7 @@ public class AgentService {
     public @NonNull PagedResult<Run> getAgentRuns(@NonNull String agentId, int page, int size) {
         int offset = page * size;
         RunQuery query = new RunQuery(
-            null, agentId, null, null, null, null,
+            null, null, agentId, null, null, null, null,
             null, null, null, "start_time", "DESC", size, offset);
         List<Run> runs = runRepository.findAll(query);
         long total = runRepository.count(query);

@@ -21,6 +21,13 @@ public class InMemoryLlmCallRepository extends LlmCallRepository {
     }
 
     @Override
+    public void saveAll(List<LlmCall> calls) {
+        for (LlmCall call : calls) {
+            save(call);
+        }
+    }
+
+    @Override
     public List<LlmCall> findByRunId(String runId) {
         return store.stream()
             .filter(c -> c.runId().equals(runId))

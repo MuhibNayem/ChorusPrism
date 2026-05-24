@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.ProvenanceEntry;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,10 +33,12 @@ public class ProvenanceRepository {
     }
 
     public void save(@NonNull ProvenanceEntry entry) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO provenance_entries (entry_id, run_id, agent_id, decision_type, input_state, reasoning, output, parent_ids, timestamp, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb)
+            INSERT INTO provenance_entries (entry_id, tenant_id, run_id, agent_id, decision_type, input_state, reasoning, output, parent_ids, timestamp, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb)
             ON CONFLICT (entry_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 run_id = EXCLUDED.run_id,
                 agent_id = EXCLUDED.agent_id,
                 decision_type = EXCLUDED.decision_type,
@@ -47,7 +50,7 @@ public class ProvenanceRepository {
                 metadata = EXCLUDED.metadata
             """;
         jdbc.update(sql,
-            entry.entryId(), entry.runId(), entry.agentId(), entry.decisionType(),
+            entry.entryId(), tenantId != null ? tenantId : "default", entry.runId(), entry.agentId(), entry.decisionType(),
             entry.inputState(), entry.reasoning(), entry.output(),
             toJson(entry.parentIds()), Timestamp.from(entry.timestamp()),
             toJson(entry.metadata())
@@ -55,18 +58,35 @@ public class ProvenanceRepository {
     }
 
     public @NonNull List<ProvenanceEntry> findByRunId(@NonNull String runId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query(
+                "SELECT * FROM provenance_entries WHERE run_id = ? AND tenant_id = ? ORDER BY timestamp ASC",
+                rowMapper, runId, tenantId);
+        }
         return jdbc.query(
             "SELECT * FROM provenance_entries WHERE run_id = ? ORDER BY timestamp ASC",
             rowMapper, runId);
     }
 
     public @NonNull List<ProvenanceEntry> findByRunId(@NonNull String runId, int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query(
+                "SELECT * FROM provenance_entries WHERE run_id = ? AND tenant_id = ? ORDER BY timestamp ASC LIMIT ? OFFSET ?",
+                rowMapper, runId, tenantId, limit, offset);
+        }
         return jdbc.query(
             "SELECT * FROM provenance_entries WHERE run_id = ? ORDER BY timestamp ASC LIMIT ? OFFSET ?",
             rowMapper, runId, limit, offset);
     }
 
     public long countByRunId(@NonNull String runId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM provenance_entries WHERE run_id = ? AND tenant_id = ?", Long.class, runId, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM provenance_entries WHERE run_id = ?", Long.class, runId);
         return count != null ? count : 0L;
     }

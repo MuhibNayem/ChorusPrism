@@ -64,6 +64,14 @@ public final class PricingTable {
         return new PricingTable(newExact, prefixPrices);
     }
 
+    /**
+     * Atomically register new prices into the lookup map.
+     */
+    public void registerPrices(@NonNull Map<String, ModelPricing> newExact, @NonNull Map<String, ModelPricing> newPrefix) {
+        this.exactPrices.putAll(newExact);
+        this.prefixPrices.putAll(newPrefix);
+    }
+
     public @Nullable ModelPricing lookup(@Nullable String model) {
         if (model == null || model.isBlank()) return null;
         String normalized = model.toLowerCase().trim();

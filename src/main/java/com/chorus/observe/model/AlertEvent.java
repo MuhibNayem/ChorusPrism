@@ -18,7 +18,10 @@ public record AlertEvent(
     @Nullable Instant resolvedAt,
     boolean notificationSent,
     @NonNull Map<String, Object> metadata,
-    @NonNull Instant createdAt
+    @NonNull Instant createdAt,
+    int retryCount,
+    @Nullable Instant nextRetryAt,
+    @Nullable String lastError
 ) {
     public AlertEvent {
         Objects.requireNonNull(eventId, "eventId");
@@ -26,5 +29,14 @@ public record AlertEvent(
         Objects.requireNonNull(triggeredAt, "triggeredAt");
         metadata = metadata != null ? Map.copyOf(metadata) : Map.of();
         createdAt = createdAt != null ? createdAt : Instant.now();
+    }
+
+    /**
+     * Backward-compatible constructor for existing callers.
+     */
+    public AlertEvent(String eventId, String ruleId, Instant triggeredAt, double value,
+                      Instant resolvedAt, boolean notificationSent, Map<String, Object> metadata,
+                      Instant createdAt) {
+        this(eventId, ruleId, triggeredAt, value, resolvedAt, notificationSent, metadata, createdAt, 0, null, null);
     }
 }

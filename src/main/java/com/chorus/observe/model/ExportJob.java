@@ -21,6 +21,9 @@ public record ExportJob(
     @Nullable Long totalRecords,
     @Nullable Long fileSizeBytes,
     @Nullable String errorMessage,
+    int retryCount,
+    @Nullable Instant nextRetryAt,
+    @Nullable String parentJobId,
     @Nullable Instant startedAt,
     @Nullable Instant finishedAt,
     @NonNull Instant createdAt

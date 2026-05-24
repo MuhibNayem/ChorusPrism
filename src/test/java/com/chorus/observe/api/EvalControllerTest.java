@@ -3,6 +3,7 @@ package com.chorus.observe.api;
 import com.chorus.observe.model.Dataset;
 import com.chorus.observe.model.DatasetItem;
 import com.chorus.observe.persistence.*;
+import com.chorus.observe.security.TenantContext;
 import com.chorus.observe.service.AgentInvoker;
 import com.chorus.observe.service.EvalService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,7 +33,16 @@ class EvalControllerTest {
         AgentInvoker fakeInvoker = (config, input) -> input.toUpperCase();
         EvalService service = new EvalService(dsRepo, itemRepo, runRepo, resultRepo, fakeInvoker, new ObjectMapper());
         EvalController controller = new EvalController(service, null);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+            .addFilters((request, response, chain) -> {
+                TenantContext.set("default", null, null);
+                try {
+                    chain.doFilter(request, response);
+                } finally {
+                    TenantContext.clear();
+                }
+            })
+            .build();
 
         mvc.perform(post("/api/v1/eval-runs")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -53,7 +63,16 @@ class EvalControllerTest {
         runRepo.save(new com.chorus.observe.model.EvalRun("eval-1", "ds-1", "Test", Map.of(), Map.of(), 8, com.chorus.observe.model.EvalRun.Status.PENDING, 0, Map.of(), null, null, null));
 
         EvalController controller = new EvalController(service, null);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+            .addFilters((request, response, chain) -> {
+                TenantContext.set("default", null, null);
+                try {
+                    chain.doFilter(request, response);
+                } finally {
+                    TenantContext.clear();
+                }
+            })
+            .build();
 
         mvc.perform(get("/api/v1/eval-runs/eval-1"))
             .andExpect(status().isOk())

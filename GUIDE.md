@@ -340,11 +340,14 @@ The `Sampler` interface supports three strategies:
 | Head-based | `HeadBasedSampler` | Deterministic hash of trace ID at root, cached for all child spans |
 | Tail-based | `TailBasedSampler` | Keeps errors and p99-latency traces regardless of rate |
 
-### 6.3 Accumulator
+### 6.3 Accumulator & Transactional Ingestion Outbox Queue
 
-- Buffers spans per `runId` in a `ConcurrentHashMap`
-- Flushes in bulk every N spans or on TTL expiry (5 minutes)
-- TTL eviction prevents unbounded memory growth for incomplete traces
+To prevent memory-buffered telemetry loss under massive scaling or container restarts, a database-backed **Transactional Outbox Queue** is introduced:
+
+* **Buffer Strategy:** The in-memory `ConcurrentHashMap` acts as a rapid primary buffer.
+* **Transactional Persistence:** If ingestion queueing is enabled (`chorus.observe.ingestion-queue.enabled=true`), spans are transactionally written into the `ingestion_queue` database table immediately upon receipt.
+* **Asynchronous Dequeue & Flush:** Concurrent virtual thread pollers fetch batches from `ingestion_queue`, aggregate them, and persist them to PostgreSQL or ClickHouse, deleting successfully flushed records from the outbox queue.
+* **Resiliency Guarantee:** If a container is suddenly killed, no buffered traces are lost. The next replica container boots up, reads the outstanding queue records from the database, and processes them asynchronously, ensuring **zero-data-loss** ingestion.
 
 ### 6.4 Real-Time Streaming
 
@@ -379,6 +382,14 @@ Map<String, Object> attributes = objectMapper.readValue(json, new TypeReference<
 ```
 
 This requires the `clickhouse-jdbc` driver and a properly configured `ObjectMapper` with `JavaTimeModule`.
+
+### 7.3 ClickHouse Connection Startup Resiliency
+
+To prevent application crashes on startup if a template environment includes ClickHouse configurations but operates purely on PostgreSQL, the ClickHouse `DataSource` is conditionally and lazily managed:
+
+1. **Custom Evaluation Condition:** `ClickHouseEnabledCondition.java` checks if `chorus.observe.storage.span-store` is configured to `clickhouse` or `dual`.
+2. **Lazy Initialization:** The connection pool (HikariCP) is only instantiated and tested against the database if ClickHouse is actively configured as a storage backend.
+3. **Startup Resilience:** If ClickHouse is offline or hostnames are unresolved, but PostgreSQL is the active storage engine, the application starts up normally without throwing `UnknownHostException` or database pool connection crashes.
 
 ---
 
@@ -549,6 +560,17 @@ LoadingCache<String, BudgetStatus> cache = Caffeine.newBuilder()
     .build(budgetService::getStatus);
 ```
 
+### 12.4 Asynchronous Dynamic Model Pricing
+
+To dynamically update model pricing at runtime without restarting the application:
+
+* **Dynamic Catalog Synchronization:** `DynamicPricingService` periodically fetches model rates asynchronously from a public/custom LiteLLM catalog JSON (defaults once every 24 hours).
+* **Robust Thread-Safe Updates:** Catalog sync merges incoming prices into the `PricingTable` thread-safely using local lock synchronizations.
+* **High-Precision Arithmetic:** Standard floating point conversions suffer from binary precision losses. For example, double-precision multiplication `0.000015 * 1000` evaluates to `0.015000000000000001`. To prevent scale drift, the system utilizes `BigDecimal` multiplication:
+  ```java
+  BigDecimal inputPer1k = BigDecimal.valueOf(inputCost).multiply(BigDecimal.valueOf(1000));
+  ```
+
 ---
 
 ## 13. Prompt A/B Testing
@@ -609,6 +631,18 @@ List<Cluster> clusters = new EmbeddingClusterer()
 ### 14.3 Duplicate Input Removal
 
 Before embedding generation, duplicate input texts are deduplicated to avoid wasting embedding budget on identical traces.
+
+### 14.4 pgvector Database Scaling
+
+For deployments with millions of trace embeddings, Chorus Observe dynamically integrates PostgreSQL's `pgvector` extension:
+
+* **Auto-Probing at Startup:** At bean initialization, the `TraceEmbeddingRepository` checks for the presence of the `vector_native` column in the `trace_embeddings` table.
+* **Native Similarity Operator:** If pgvector is present, the nearest neighbor search runs a high-performance database-level query using the cosine distance operator (`<=>`):
+  ```sql
+  SELECT * FROM trace_embeddings ORDER BY vector_native <=> ?::vector LIMIT ?
+  ```
+  This is fully indexed by PostgreSQL using a fast **HNSW (Hierarchical Navigable Small World)** vector index.
+* **Database-Agnostic Fallback:** If the extension or column is absent, the system degrades gracefully to an in-memory Vantage-Point (VP) Tree clustering fallback. This ensures the backend runs out-of-the-box in any standard PostgreSQL environment without database-level setup overhead.
 
 ---
 

@@ -27,5 +27,5 @@ public record NotificationChannel(
         Objects.requireNonNull(updatedAt);
     }
 
-    public enum ChannelType { SLACK, PAGERDUTY, EMAIL, WEBHOOK }
+    public enum ChannelType { SLACK, PAGERDUTY, EMAIL, WEBHOOK, TEAMS }
 }

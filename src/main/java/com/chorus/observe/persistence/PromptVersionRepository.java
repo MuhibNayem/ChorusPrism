@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.PromptVersion;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,10 +36,12 @@ public class PromptVersionRepository {
     }
 
     public void save(@NonNull PromptVersion prompt) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO prompt_versions (version_id, name, content, model, temperature, max_tokens, metadata, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)
+            INSERT INTO prompt_versions (version_id, tenant_id, name, content, model, temperature, max_tokens, metadata, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)
             ON CONFLICT (version_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 name = EXCLUDED.name,
                 content = EXCLUDED.content,
                 model = EXCLUDED.model,
@@ -48,14 +51,19 @@ public class PromptVersionRepository {
                 created_by = EXCLUDED.created_by
             """;
         jdbc.update(sql,
-            prompt.versionId(), prompt.name(), prompt.content(), prompt.model(),
+            prompt.versionId(), tenantId != null ? tenantId : "default", prompt.name(), prompt.content(), prompt.model(),
             prompt.temperature(), prompt.maxTokens(), toJson(prompt.metadata()),
             prompt.createdBy(), Timestamp.from(prompt.createdAt())
         );
     }
 
     public @NonNull Optional<PromptVersion> findById(@NonNull String versionId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM prompt_versions WHERE version_id = ? AND tenant_id = ?", rowMapper, versionId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM prompt_versions WHERE version_id = ?", rowMapper, versionId));
         } catch (EmptyResultDataAccessException e) {
@@ -64,33 +72,64 @@ public class PromptVersionRepository {
     }
 
     public @NonNull List<PromptVersion> findByName(@NonNull String name) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM prompt_versions WHERE name = ? AND tenant_id = ? ORDER BY created_at DESC", rowMapper, name, tenantId);
+        }
         return jdbc.query("SELECT * FROM prompt_versions WHERE name = ? ORDER BY created_at DESC", rowMapper, name);
     }
 
     public @NonNull List<PromptVersion> findByName(@NonNull String name, int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM prompt_versions WHERE name = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, name, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM prompt_versions WHERE name = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, name, limit, offset);
     }
 
     public long countByName(@NonNull String name) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM prompt_versions WHERE name = ? AND tenant_id = ?", Long.class, name, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM prompt_versions WHERE name = ?", Long.class, name);
         return count != null ? count : 0L;
     }
 
     public @NonNull List<PromptVersion> findAll() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM prompt_versions WHERE tenant_id = ? ORDER BY created_at DESC", rowMapper, tenantId);
+        }
         return jdbc.query("SELECT * FROM prompt_versions ORDER BY created_at DESC", rowMapper);
     }
 
     public @NonNull List<PromptVersion> findAll(int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM prompt_versions WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM prompt_versions ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, limit, offset);
     }
 
     public long count() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM prompt_versions WHERE tenant_id = ?", Long.class, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM prompt_versions", Long.class);
         return count != null ? count : 0L;
     }
 
     public void deleteById(@NonNull String versionId) {
-        jdbc.update("DELETE FROM prompt_versions WHERE version_id = ?", versionId);
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            jdbc.update("DELETE FROM prompt_versions WHERE version_id = ? AND tenant_id = ?", versionId, tenantId);
+        } else {
+            jdbc.update("DELETE FROM prompt_versions WHERE version_id = ?", versionId);
+        }
     }
 
     private @NonNull String toJson(@NonNull Object value) {

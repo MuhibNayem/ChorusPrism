@@ -43,6 +43,14 @@ public final class WebhookDispatcher implements NotificationDispatcher {
             return;
         }
         String webhookUrl = urlObj.toString();
+
+        try {
+            UrlValidator.validate(webhookUrl);
+        } catch (IllegalArgumentException e) {
+            LOG.error("Blocked SSRF attempt via webhook channel {}: {}", channel.channelId(), e.getMessage());
+            return;
+        }
+
         String severity = rule.severity() != null ? rule.severity().name() : "UNKNOWN";
 
         try {

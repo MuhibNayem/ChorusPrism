@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.Checkpoint;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,24 +36,31 @@ public class CheckpointRepository {
     }
 
     public void save(@NonNull Checkpoint checkpoint) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO checkpoints (checkpoint_id, run_id, sequence, state_snapshot, next_nodes, metadata, created_at)
-            VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?)
+            INSERT INTO checkpoints (checkpoint_id, tenant_id, run_id, sequence, state_snapshot, next_nodes, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?)
             ON CONFLICT (run_id, sequence) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 checkpoint_id = EXCLUDED.checkpoint_id,
                 state_snapshot = EXCLUDED.state_snapshot,
                 next_nodes = EXCLUDED.next_nodes,
                 metadata = EXCLUDED.metadata
             """;
         jdbc.update(sql,
-            checkpoint.checkpointId(), checkpoint.runId(), checkpoint.sequence(),
+            checkpoint.checkpointId(), tenantId != null ? tenantId : "default", checkpoint.runId(), checkpoint.sequence(),
             toJson(checkpoint.stateSnapshot()), toJson(checkpoint.nextNodes()),
             toJson(checkpoint.metadata()), Timestamp.from(checkpoint.createdAt())
         );
     }
 
     public @NonNull Optional<Checkpoint> findById(@NonNull String checkpointId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM checkpoints WHERE checkpoint_id = ? AND tenant_id = ?", rowMapper, checkpointId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM checkpoints WHERE checkpoint_id = ?", rowMapper, checkpointId));
         } catch (EmptyResultDataAccessException e) {
@@ -61,20 +69,38 @@ public class CheckpointRepository {
     }
 
     public @NonNull List<Checkpoint> findByRunId(@NonNull String runId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM checkpoints WHERE run_id = ? AND tenant_id = ? ORDER BY sequence", rowMapper, runId, tenantId);
+        }
         return jdbc.query("SELECT * FROM checkpoints WHERE run_id = ? ORDER BY sequence", rowMapper, runId);
     }
 
     public @NonNull List<Checkpoint> findByRunId(@NonNull String runId, int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM checkpoints WHERE run_id = ? AND tenant_id = ? ORDER BY sequence LIMIT ? OFFSET ?", rowMapper, runId, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM checkpoints WHERE run_id = ? ORDER BY sequence LIMIT ? OFFSET ?", rowMapper, runId, limit, offset);
     }
 
     public long countByRunId(@NonNull String runId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM checkpoints WHERE run_id = ? AND tenant_id = ?", Long.class, runId, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM checkpoints WHERE run_id = ?", Long.class, runId);
         return count != null ? count : 0L;
     }
 
     public @NonNull Optional<Checkpoint> findByRunIdAndSequence(@NonNull String runId, int sequence) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM checkpoints WHERE run_id = ? AND sequence = ? AND tenant_id = ?", rowMapper, runId, sequence, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM checkpoints WHERE run_id = ? AND sequence = ?", rowMapper, runId, sequence));
         } catch (EmptyResultDataAccessException e) {
@@ -83,7 +109,12 @@ public class CheckpointRepository {
     }
 
     public @NonNull Optional<Checkpoint> findLatestByRunId(@NonNull String runId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM checkpoints WHERE run_id = ? AND tenant_id = ? ORDER BY sequence DESC LIMIT 1", rowMapper, runId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM checkpoints WHERE run_id = ? ORDER BY sequence DESC LIMIT 1", rowMapper, runId));
         } catch (EmptyResultDataAccessException e) {
@@ -92,7 +123,12 @@ public class CheckpointRepository {
     }
 
     public void deleteByRunId(@NonNull String runId) {
-        jdbc.update("DELETE FROM checkpoints WHERE run_id = ?", runId);
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            jdbc.update("DELETE FROM checkpoints WHERE run_id = ? AND tenant_id = ?", runId, tenantId);
+        } else {
+            jdbc.update("DELETE FROM checkpoints WHERE run_id = ?", runId);
+        }
     }
 
     private @NonNull String toJson(@NonNull Object value) {

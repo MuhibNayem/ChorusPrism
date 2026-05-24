@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.BudgetEnforcement;
+import com.chorus.observe.security.TenantContext;
 import org.jspecify.annotations.NonNull;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -29,10 +30,12 @@ public class BudgetEnforcementRepository {
     }
 
     public void save(@NonNull BudgetEnforcement enforcement) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO budget_enforcements (enforcement_id, agent_id, budget_type, limit_value, current_value, currency, status, triggered_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO budget_enforcements (enforcement_id, tenant_id, agent_id, budget_type, limit_value, current_value, currency, status, triggered_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (enforcement_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 agent_id = EXCLUDED.agent_id,
                 budget_type = EXCLUDED.budget_type,
                 limit_value = EXCLUDED.limit_value,
@@ -43,7 +46,7 @@ public class BudgetEnforcementRepository {
                 updated_at = EXCLUDED.updated_at
             """;
         jdbc.update(sql,
-            enforcement.enforcementId(), enforcement.agentId(), enforcement.budgetType(),
+            enforcement.enforcementId(), tenantId != null ? tenantId : "default", enforcement.agentId(), enforcement.budgetType(),
             enforcement.limitValue(), enforcement.currentValue(), enforcement.currency(),
             enforcement.status().name(),
             enforcement.triggeredAt() != null ? Timestamp.from(enforcement.triggeredAt()) : null,
@@ -52,7 +55,12 @@ public class BudgetEnforcementRepository {
     }
 
     public @NonNull Optional<BudgetEnforcement> findById(@NonNull String enforcementId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM budget_enforcements WHERE enforcement_id = ? AND tenant_id = ?", rowMapper, enforcementId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM budget_enforcements WHERE enforcement_id = ?", rowMapper, enforcementId));
         } catch (EmptyResultDataAccessException e) {
@@ -61,42 +69,90 @@ public class BudgetEnforcementRepository {
     }
 
     public @NonNull List<BudgetEnforcement> findByAgentId(@NonNull String agentId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM budget_enforcements WHERE agent_id = ? AND tenant_id = ? ORDER BY created_at DESC", rowMapper, agentId, tenantId);
+        }
         return jdbc.query("SELECT * FROM budget_enforcements WHERE agent_id = ? ORDER BY created_at DESC", rowMapper, agentId);
     }
 
     public @NonNull List<BudgetEnforcement> findByAgentId(@NonNull String agentId, int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM budget_enforcements WHERE agent_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, agentId, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM budget_enforcements WHERE agent_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, agentId, limit, offset);
     }
 
     public long countByAgentId(@NonNull String agentId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM budget_enforcements WHERE agent_id = ? AND tenant_id = ?", Long.class, agentId, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM budget_enforcements WHERE agent_id = ?", Long.class, agentId);
         return count != null ? count : 0L;
     }
 
     public @NonNull List<BudgetEnforcement> findAll() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM budget_enforcements WHERE tenant_id = ? ORDER BY created_at DESC", rowMapper, tenantId);
+        }
         return jdbc.query("SELECT * FROM budget_enforcements ORDER BY created_at DESC", rowMapper);
     }
 
     public @NonNull List<BudgetEnforcement> findAll(int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM budget_enforcements WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM budget_enforcements ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, limit, offset);
     }
 
     public long count() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM budget_enforcements WHERE tenant_id = ?", Long.class, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM budget_enforcements", Long.class);
         return count != null ? count : 0L;
     }
 
     public @NonNull List<BudgetEnforcement> findActive() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM budget_enforcements WHERE tenant_id = ? AND status = 'ACTIVE' ORDER BY created_at DESC", rowMapper, tenantId);
+        }
         return jdbc.query("SELECT * FROM budget_enforcements WHERE status = 'ACTIVE' ORDER BY created_at DESC", rowMapper);
     }
 
     public @NonNull List<BudgetEnforcement> findActive(int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM budget_enforcements WHERE tenant_id = ? AND status = 'ACTIVE' ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM budget_enforcements WHERE status = 'ACTIVE' ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, limit, offset);
     }
 
     public long countActive() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM budget_enforcements WHERE tenant_id = ? AND status = 'ACTIVE'", Long.class, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM budget_enforcements WHERE status = 'ACTIVE'", Long.class);
         return count != null ? count : 0L;
+    }
+
+    public void deleteById(@NonNull String ruleId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            jdbc.update("DELETE FROM budget_enforcements WHERE enforcement_id = ? AND tenant_id = ?", ruleId, tenantId);
+        } else {
+            jdbc.update("DELETE FROM budget_enforcements WHERE enforcement_id = ?", ruleId);
+        }
     }
 
     /**
@@ -106,7 +162,32 @@ public class BudgetEnforcementRepository {
      * @return number of rows updated (1 = success, 0 = budget not found or concurrent modification)
      */
     public int addSpendingAtomic(@NonNull String enforcementId, @NonNull BigDecimal delta) {
-        String sql = """
+        String tenantId = TenantContext.getTenantIdOrNull();
+        String sql;
+        Instant now = Instant.now();
+        if (tenantId != null) {
+            sql = """
+                UPDATE budget_enforcements
+                SET current_value = current_value + ?,
+                    status = CASE
+                        WHEN current_value + ? >= limit_value THEN 'EXCEEDED'
+                        WHEN current_value + ? >= limit_value * 0.8 AND status = 'ACTIVE' THEN 'WARNING'
+                        ELSE status
+                    END,
+                    triggered_at = CASE
+                        WHEN current_value + ? >= limit_value AND triggered_at IS NULL THEN ?
+                        ELSE triggered_at
+                    END,
+                    updated_at = ?
+                WHERE enforcement_id = ? AND tenant_id = ?
+                """;
+            return jdbc.update(sql,
+                delta, delta, delta, delta,
+                Timestamp.from(now), Timestamp.from(now),
+                enforcementId, tenantId
+            );
+        }
+        sql = """
             UPDATE budget_enforcements
             SET current_value = current_value + ?,
                 status = CASE
@@ -121,7 +202,6 @@ public class BudgetEnforcementRepository {
                 updated_at = ?
             WHERE enforcement_id = ?
             """;
-        Instant now = Instant.now();
         return jdbc.update(sql,
             delta, delta, delta, delta,
             Timestamp.from(now), Timestamp.from(now),

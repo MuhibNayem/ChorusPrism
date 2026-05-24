@@ -25,6 +25,13 @@ java {
 repositories {
     mavenCentral()
     mavenLocal()
+    maven {
+        url = uri("https://build.shibboleth.net/maven/releases/")
+        mavenContent {
+            includeGroup("org.opensaml")
+            includeGroup("net.shibboleth")
+        }
+    }
 }
 
 dependencies {
@@ -43,10 +50,13 @@ dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind:2.18.0")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.0")
 
-    // Security
-    implementation("org.springframework.security:spring-security-crypto:6.5.0")
-    implementation("org.springframework.security:spring-security-config:6.5.0")
-    implementation("org.springframework.security:spring-security-web:6.5.0")
+    // Security (versions managed by Spring Boot BOM)
+    implementation("org.springframework.security:spring-security-crypto")
+    implementation("org.springframework.security:spring-security-config")
+    implementation("org.springframework.security:spring-security-web")
+    implementation("org.springframework.security:spring-security-oauth2-client")
+    implementation("org.springframework.security:spring-security-oauth2-jose")
+    implementation("org.springframework.security:spring-security-saml2-service-provider")
 
     // JWT
     implementation("io.jsonwebtoken:jjwt-api:0.12.6")
@@ -58,6 +68,12 @@ dependencies {
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("com.clickhouse:clickhouse-jdbc:0.7.1")
+
+    // Parquet export
+    implementation("com.jerolba:carpet-record:0.6.1")
+
+    // S3 / MinIO export
+    implementation("software.amazon.awssdk:s3:2.29.0")
 
     // Chorus Engine modules (version managed by BOM)
     implementation(platform("io.github.muhibnayem:chorus-engine-bom:0.1.7"))

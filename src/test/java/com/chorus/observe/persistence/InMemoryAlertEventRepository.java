@@ -67,4 +67,19 @@ public class InMemoryAlertEventRepository extends AlertEventRepository {
     public long count() {
         return store.size();
     }
+
+    @Override
+    public Optional<AlertEvent> findMostRecentByRuleId(String ruleId) {
+        return store.values().stream()
+            .filter(e -> e.ruleId().equals(ruleId))
+            .max(Comparator.comparing(AlertEvent::triggeredAt));
+    }
+
+    @Override
+    public List<AlertEvent> findRetryable() {
+        return store.values().stream()
+            .filter(e -> e.nextRetryAt() != null && !e.nextRetryAt().isAfter(java.time.Instant.now()) && e.retryCount() < 3)
+            .sorted(Comparator.comparing(AlertEvent::nextRetryAt))
+            .collect(Collectors.toList());
+    }
 }

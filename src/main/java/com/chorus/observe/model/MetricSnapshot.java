@@ -11,6 +11,7 @@ import java.util.Objects;
  */
 public record MetricSnapshot(
     @NonNull String snapshotId,
+    @NonNull String tenantId,
     @NonNull String metricName,
     double value,
     @NonNull Map<String, String> tags,
@@ -19,6 +20,7 @@ public record MetricSnapshot(
 
     public MetricSnapshot {
         Objects.requireNonNull(snapshotId, "snapshotId");
+        Objects.requireNonNull(tenantId, "tenantId");
         Objects.requireNonNull(metricName, "metricName");
         Objects.requireNonNull(timestamp, "timestamp");
         tags = tags != null ? Map.copyOf(tags) : Map.of();

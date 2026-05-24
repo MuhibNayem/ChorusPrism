@@ -1,5 +1,7 @@
 package com.chorus.observe.api;
 
+import com.chorus.observe.model.Tenant;
+import com.chorus.observe.persistence.TenantRepository;
 import com.chorus.observe.service.AuthenticationService;
 import com.chorus.observe.service.UserService;
 import com.chorus.observe.security.TenantContext;
@@ -11,6 +13,7 @@ import org.jspecify.annotations.NonNull;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -25,10 +28,13 @@ public class AuthController {
 
     private final AuthenticationService authenticationService;
     private final UserService userService;
+    private final TenantRepository tenantRepository;
 
-    public AuthController(@NonNull AuthenticationService authenticationService, @NonNull UserService userService) {
+    public AuthController(@NonNull AuthenticationService authenticationService, @NonNull UserService userService,
+                          @NonNull TenantRepository tenantRepository) {
         this.authenticationService = authenticationService;
         this.userService = userService;
+        this.tenantRepository = tenantRepository;
     }
 
     @PostMapping("/login")
@@ -50,6 +56,10 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody @Valid RegisterRequest request) {
         String tenantId = "tnt-" + UUID.randomUUID().toString().substring(0, 8);
+        String tenantName = request.email().split("@")[0] + "-workspace";
+        Tenant tenant = new Tenant(tenantId, tenantName, Map.of(), Tenant.Status.ACTIVE, Instant.now(), Instant.now());
+        tenantRepository.save(tenant);
+
         var user = userService.createUser(tenantId, request.email(), request.password(), request.displayName());
         userService.assignRole(user.userId(), "role-admin");
         var result = authenticationService.login(tenantId, request.email(), request.password());

@@ -1,0 +1,1041 @@
+openapi: 3.0.3
+info:
+  title: Chorus Observe API
+  description: >
+    Enterprise observability, evaluation, budget enforcement, trace clustering, 
+    and time-travel debugging backend for LLM agent systems.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+paths:
+  # --- AUTHENTICATION & TENANCY ---
+  /api/v1/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Authenticate a user and retrieve a JWT token
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: admin@acme.com
+                password:
+                  type: string
+                  format: password
+                  example: secure-password
+      responses:
+        '200':
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: JWT access token
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  expiry:
+                    type: string
+                    format: date-time
+        '401':
+          description: Invalid credentials
+
+  /api/v1/tenants:
+    post:
+      tags:
+        - Tenancy
+      summary: Create a new tenant (workspace partition)
+      operationId: createTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  example: acme-corp
+      responses:
+        '200':
+          description: Tenant created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenantId:
+                    type: string
+                    example: tnt-a1b2c3d4
+                  name:
+                    type: string
+                    example: acme-corp
+
+  /api/v1/users:
+    post:
+      tags:
+        - Users
+      summary: Provision a new user under a tenant partition
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - displayName
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: admin@acme.com
+                password:
+                  type: string
+                  format: password
+                  example: secure-password
+                displayName:
+                  type: string
+                  example: Admin User
+      responses:
+        '200':
+          description: User created successfully
+
+  # --- OTLP TRACE INGESTION ---
+  /v1/traces:
+    post:
+      tags:
+        - Ingestion
+      summary: Ingest OpenTelemetry traces (HTTP/JSON OTLP receiver)
+      description: Receives standard OpenTelemetry ResourceSpans. Automatically enqueues to transactional outbox when enabled.
+      operationId: ingestTraces
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtelResourceSpans'
+      responses:
+        '200':
+          description: Spans successfully accepted
+
+  # --- RUNS & SPANS ---
+  /api/v1/runs:
+    get:
+      tags:
+        - Runs
+      summary: Search and list runs
+      operationId: listRuns
+      parameters:
+        - name: framework
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: agentId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: model
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ACTIVE, COMPLETED, ERROR]
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          required: false
+          schema:
+            type: string
+            default: start_time
+        - name: sortOrder
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ASC, DESC]
+            default: DESC
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Paged list of runs with evaluation summaries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunListResponse'
+
+  /api/v1/runs/{runId}:
+    get:
+      tags:
+        - Runs
+      summary: Retrieve run details by ID
+      operationId: getRun
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '404':
+          description: Run not found
+
+  /api/v1/runs/{runId}/stream:
+    get:
+      tags:
+        - Runs
+      summary: Stream real-time spans of a run using Server-Sent Events (SSE)
+      operationId: streamRunSpans
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Server-sent event stream of spans
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: JSON events mapping to individual span records
+
+  /api/v1/runs/{runId}/eval-summary:
+    get:
+      tags:
+        - Runs
+      summary: Retrieve evaluation summaries for a run
+      operationId: getRunEvalSummary
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Eval summary successfully returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunEvalSummary'
+
+  # --- SPANS ---
+  /api/v1/spans:
+    get:
+      tags:
+        - Spans
+      summary: Search and query spans
+      operationId: listSpans
+      parameters:
+        - name: runId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of spans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Span'
+
+  # --- DATASETS ---
+  /api/v1/datasets:
+    post:
+      tags:
+        - Datasets
+      summary: Create a new dataset
+      operationId: createDataset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  example: math-qa
+                description:
+                  type: string
+                  example: Math logic QA items
+                tags:
+                  type: object
+                  additionalProperties:
+                    type: string
+                source:
+                  type: string
+                  example: manual
+      responses:
+        '200':
+          description: Dataset successfully created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dataset'
+
+    get:
+      tags:
+        - Datasets
+      summary: List all datasets (paged)
+      operationId: listDatasets
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Paged list of datasets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Dataset'
+                  totalElements:
+                    type: integer
+                  totalPages:
+                    type: integer
+
+  /api/v1/datasets/{datasetId}:
+    get:
+      tags:
+        - Datasets
+      summary: Retrieve a dataset by ID
+      operationId: getDataset
+      parameters:
+        - name: datasetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Dataset returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dataset'
+    delete:
+      tags:
+        - Datasets
+      summary: Delete a dataset and its items
+      operationId: deleteDataset
+      parameters:
+        - name: datasetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '244':
+          description: Dataset deleted successfully (No Content)
+
+  /api/v1/datasets/{datasetId}/items:
+    post:
+      tags:
+        - Datasets
+      summary: Add an item to a dataset
+      operationId: addDatasetItem
+      parameters:
+        - name: datasetId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - input
+              properties:
+                input:
+                  type: string
+                  example: What is 2+2?
+                expectedOutput:
+                  type: string
+                  example: "4"
+                metadata:
+                  type: object
+                  additionalProperties: {}
+      responses:
+        '200':
+          description: DatasetItem successfully created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetItem'
+
+    get:
+      tags:
+        - Datasets
+      summary: List items inside a dataset (paged)
+      operationId: listDatasetItems
+      parameters:
+        - name: datasetId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Paged list of dataset items
+
+  /api/v1/datasets/from-traces:
+    post:
+      tags:
+        - Datasets
+      summary: Bootstrap a dataset from existing transaction traces
+      operationId: createDatasetFromTraces
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - runIds
+              properties:
+                name:
+                  type: string
+                  example: trace-bootstrapped-qa
+                description:
+                  type: string
+                runIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Dataset bootstrapped successfully
+
+  /api/v1/datasets/{datasetId}/import-jsonl:
+    post:
+      tags:
+        - Datasets
+      summary: Import dataset items in bulk from JSONL records
+      operationId: importDatasetJsonl
+      parameters:
+        - name: datasetId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                description: Raw JSON lines
+      responses:
+        '200':
+          description: Items imported successfully
+
+  /api/v1/datasets/{datasetId}/export-jsonl:
+    get:
+      tags:
+        - Datasets
+      summary: Export dataset items in JSONL format
+      operationId: exportDatasetJsonl
+      parameters:
+        - name: datasetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Exported list of objects
+
+  # --- BUDGET ENFORCEMENT & CLUSTERING ---
+  /api/v1/monitoring/budgets:
+    get:
+      tags:
+        - Monitoring
+      summary: List all active budgets (paged)
+      operationId: listBudgets
+      responses:
+        '200':
+          description: Paged budget list
+
+    post:
+      tags:
+        - Monitoring
+      summary: Provision a spending budget for an agent
+      operationId: createBudget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - agentId
+                - budgetType
+                - limitValue
+                - currency
+              properties:
+                agentId:
+                  type: string
+                  example: support-bot
+                budgetType:
+                  type: string
+                  enum: [per_run, total_monthly, total_daily]
+                  example: total_daily
+                limitValue:
+                  type: number
+                  example: 50.00
+                currency:
+                  type: string
+                  example: USD
+      responses:
+        '200':
+          description: Budget successfully created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetEnforcement'
+
+  /api/v1/monitoring/budgets/{enforcementId}/spend:
+    post:
+      tags:
+        - Monitoring
+      summary: Record execution spend against an agent budget (atomic update)
+      operationId: recordSpend
+      parameters:
+        - name: enforcementId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - amount
+              properties:
+                amount:
+                  type: number
+                  example: 0.0150
+      responses:
+        '200':
+          description: Spend recorded successfully
+
+  /api/v1/monitoring/budgets/{enforcementId}/pause:
+    post:
+      tags:
+        - Monitoring
+      summary: Pause spending enforcement for a budget
+      operationId: pauseBudget
+      responses:
+        '244':
+          description: Success
+
+  /api/v1/monitoring/budgets/{enforcementId}/resume:
+    post:
+      tags:
+        - Monitoring
+      summary: Resume spending enforcement for a budget
+      operationId: resumeBudget
+      responses:
+        '244':
+          description: Success
+
+  /api/v1/monitoring/clusters/analyze:
+    post:
+      tags:
+        - Monitoring
+      summary: Execute clustering analysis on trace embeddings
+      description: DBSCAN-based clustering utilizing database-level pgvector indexing if available, or Vantage-Point fallback.
+      operationId: analyzeClusters
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - periodStart
+                - periodEnd
+                - model
+                - agentConfig
+              properties:
+                periodStart:
+                  type: string
+                  format: date-time
+                periodEnd:
+                  type: string
+                  format: date-time
+                model:
+                  type: string
+                  example: text-embedding-3-small
+                agentConfig:
+                  type: object
+                  additionalProperties: {}
+                minSimilarity:
+                  type: number
+                  default: 0.85
+                minPoints:
+                  type: integer
+                  default: 5
+      responses:
+        '200':
+          description: Cluster analysis report completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusteringReport'
+
+  # --- ALERTS ---
+  /api/v1/alerts/rules:
+    post:
+      tags:
+        - Alerts
+      summary: Register a SQL-based alert rule
+      operationId: createAlertRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - conditionExpr
+                - threshold
+                - severity
+              properties:
+                name:
+                  type: string
+                  example: high-latency-evals
+                conditionExpr:
+                  type: string
+                  example: "SELECT avg(latency_ms) FROM runs WHERE framework = 'chorus'"
+                threshold:
+                  type: number
+                  example: 5000
+                severity:
+                  type: string
+                  enum: [INFO, WARNING, CRITICAL]
+                  example: CRITICAL
+                webhookUrl:
+                  type: string
+                  format: uri
+                email:
+                  type: string
+                cooldownSeconds:
+                  type: integer
+                  default: 300
+      responses:
+        '200':
+          description: Alert rule registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+
+  /api/v1/alerts/events/unresolved:
+    get:
+      tags:
+        - Alerts
+      summary: List all active unresolved alert events
+      operationId: listUnresolvedAlerts
+      responses:
+        '200':
+          description: Unresolved alert list
+
+  /api/v1/alerts/events/{eventId}/resolve:
+    post:
+      tags:
+        - Alerts
+      summary: Resolve an active alert event
+      operationId: resolveAlert
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '244':
+          description: Success
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key generated in User Settings screen
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Enter JWT retrieved from /api/v1/auth/login
+
+  schemas:
+    Run:
+      type: object
+      properties:
+        runId:
+          type: string
+        tenantId:
+          type: string
+        framework:
+          type: string
+        agentId:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        totalTokens:
+          type: integer
+        totalCost:
+          type: number
+        latencyMs:
+          type: integer
+        status:
+          type: string
+          enum: [ACTIVE, COMPLETED, ERROR]
+
+    Span:
+      type: object
+      properties:
+        spanId:
+          type: string
+        runId:
+          type: string
+        parentSpanId:
+          type: string
+        spanName:
+          type: string
+        kind:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        attributes:
+          type: object
+          additionalProperties: {}
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpanEvent'
+        status:
+          type: string
+
+    SpanEvent:
+      type: object
+      properties:
+        name:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        attributes:
+          type: object
+          additionalProperties: {}
+
+    RunListResponse:
+      type: object
+      properties:
+        runs:
+          type: array
+          items:
+            type: object
+            properties:
+              run:
+                $ref: '#/components/schemas/Run'
+              evalSummary:
+                $ref: '#/components/schemas/RunEvalSummary'
+        total:
+          type: integer
+        page:
+          type: integer
+        size:
+          type: integer
+
+    RunEvalSummary:
+      type: object
+      properties:
+        runId:
+          type: string
+        casesRun:
+          type: integer
+        casesPassed:
+          type: integer
+        passRate:
+          type: number
+
+    Dataset:
+      type: object
+      properties:
+        datasetId:
+          type: string
+        tenantId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        source:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    DatasetItem:
+      type: object
+      properties:
+        itemId:
+          type: string
+        datasetId:
+          type: string
+        input:
+          type: string
+        expectedOutput:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: {}
+
+    BudgetEnforcement:
+      type: object
+      properties:
+        enforcementId:
+          type: string
+        agentId:
+          type: string
+        budgetType:
+          type: string
+        limitValue:
+          type: number
+        currentValue:
+          type: number
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, WARNING, EXCEEDED]
+
+    AlertRule:
+      type: object
+      properties:
+        ruleId:
+          type: string
+        name:
+          type: string
+        conditionExpr:
+          type: string
+        threshold:
+          type: number
+        severity:
+          type: string
+        webhookUrl:
+          type: string
+        email:
+          type: string
+        cooldownSeconds:
+          type: integer
+
+    ClusteringReport:
+      type: object
+      properties:
+        totalTraces:
+          type: integer
+        clusteredCount:
+          type: integer
+        noiseCount:
+          type: integer
+        clustersGenerated:
+          type: integer
+        clusters:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              size:
+                type: integer
+              avgCost:
+                type: number
+              avgScore:
+                type: number
+
+    OtelResourceSpans:
+      type: object
+      required:
+        - resourceSpans
+      properties:
+        resourceSpans:
+          type: array
+          items:
+            type: object
+            properties:
+              resource:
+                type: object
+                properties:
+                  attributes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                        value:
+                          type: object
+              scopeSpans:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    spans:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - traceId
+                          - spanId
+                          - name
+                          - startTimeUnixNano
+                        properties:
+                          traceId:
+                            type: string
+                          spanId:
+                            type: string
+                          parentSpanId:
+                            type: string
+                          name:
+                            type: string
+                          kind:
+                            type: integer
+                          startTimeUnixNano:
+                            type: string
+                          endTimeUnixNano:
+                            type: string
+                          attributes:
+                            type: array
+                            items:
+                              type: object

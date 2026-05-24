@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.MultiTurnRun;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,10 +33,12 @@ public class MultiTurnRunRepository {
     }
 
     public void save(@NonNull MultiTurnRun run) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO multi_turn_runs (run_id, scenario_id, agent_config, status, total_turns, passed_turns, failed_turns, final_score, summary_metrics, started_at, finished_at, created_at)
-            VALUES (?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+            INSERT INTO multi_turn_runs (run_id, tenant_id, scenario_id, agent_config, status, total_turns, passed_turns, failed_turns, final_score, summary_metrics, started_at, finished_at, created_at)
+            VALUES (?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
             ON CONFLICT (run_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 scenario_id = EXCLUDED.scenario_id,
                 agent_config = EXCLUDED.agent_config,
                 status = EXCLUDED.status,
@@ -48,7 +51,7 @@ public class MultiTurnRunRepository {
                 finished_at = EXCLUDED.finished_at
             """;
         jdbc.update(sql,
-            run.runId(), run.scenarioId(), toJson(run.agentConfig()), run.status().name(),
+            run.runId(), tenantId != null ? tenantId : "default", run.scenarioId(), toJson(run.agentConfig()), run.status().name(),
             run.totalTurns(), run.passedTurns(), run.failedTurns(), run.finalScore(),
             toJson(run.summaryMetrics()),
             run.startedAt() != null ? Timestamp.from(run.startedAt()) : null,
@@ -57,7 +60,12 @@ public class MultiTurnRunRepository {
     }
 
     public @NonNull Optional<MultiTurnRun> findById(@NonNull String runId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM multi_turn_runs WHERE run_id = ? AND tenant_id = ?", rowMapper, runId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM multi_turn_runs WHERE run_id = ?", rowMapper, runId));
         } catch (EmptyResultDataAccessException e) {
@@ -66,15 +74,28 @@ public class MultiTurnRunRepository {
     }
 
     public @NonNull List<MultiTurnRun> findByScenarioId(@NonNull String scenarioId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM multi_turn_runs WHERE scenario_id = ? AND tenant_id = ? ORDER BY created_at DESC", rowMapper, scenarioId, tenantId);
+        }
         return jdbc.query("SELECT * FROM multi_turn_runs WHERE scenario_id = ? ORDER BY created_at DESC", rowMapper, scenarioId);
     }
 
     public @NonNull List<MultiTurnRun> findAll() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM multi_turn_runs WHERE tenant_id = ? ORDER BY created_at DESC", rowMapper, tenantId);
+        }
         return jdbc.query("SELECT * FROM multi_turn_runs ORDER BY created_at DESC", rowMapper);
     }
 
     public void deleteById(@NonNull String runId) {
-        jdbc.update("DELETE FROM multi_turn_runs WHERE run_id = ?", runId);
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            jdbc.update("DELETE FROM multi_turn_runs WHERE run_id = ? AND tenant_id = ?", runId, tenantId);
+        } else {
+            jdbc.update("DELETE FROM multi_turn_runs WHERE run_id = ?", runId);
+        }
     }
 
     private @NonNull String toJson(@NonNull Object value) {

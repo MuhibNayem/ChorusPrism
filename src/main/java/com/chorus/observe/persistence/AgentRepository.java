@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.Agent;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,10 +35,12 @@ public class AgentRepository {
     }
 
     public void save(@NonNull Agent agent) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO agents (agent_id, name, description, framework, runtime, owner, owner_email, tags, version, deployed_at, deployed_by, status, health, repo, branch, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            INSERT INTO agents (agent_id, tenant_id, name, description, framework, runtime, owner, owner_email, tags, version, deployed_at, deployed_by, status, health, repo, branch, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
             ON CONFLICT (agent_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 name = EXCLUDED.name,
                 description = EXCLUDED.description,
                 framework = EXCLUDED.framework,
@@ -55,7 +58,7 @@ public class AgentRepository {
                 updated_at = NOW()
             """;
         jdbc.update(sql,
-            agent.agentId(), agent.name(), agent.description(),
+            agent.agentId(), tenantId != null ? tenantId : "default", agent.name(), agent.description(),
             agent.framework(), agent.runtime(), agent.owner(),
             agent.ownerEmail(), toJson(agent.tags()),
             agent.version(),
@@ -68,7 +71,12 @@ public class AgentRepository {
     }
 
     public @NonNull Optional<Agent> findById(@NonNull String agentId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM agents WHERE agent_id = ? AND tenant_id = ?", rowMapper, agentId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM agents WHERE agent_id = ?", rowMapper, agentId));
         } catch (EmptyResultDataAccessException e) {
@@ -77,27 +85,43 @@ public class AgentRepository {
     }
 
     public @NonNull List<Agent> findAll() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM agents WHERE tenant_id = ? ORDER BY created_at DESC", rowMapper, tenantId);
+        }
         return jdbc.query("SELECT * FROM agents ORDER BY created_at DESC", rowMapper);
     }
 
     public boolean exists(@NonNull String agentId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM agents WHERE agent_id = ? AND tenant_id = ?", Long.class, agentId, tenantId);
+            return count != null && count > 0;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM agents WHERE agent_id = ?", Long.class, agentId);
         return count != null && count > 0;
     }
 
     public void deleteById(@NonNull String agentId) {
-        jdbc.update("DELETE FROM agents WHERE agent_id = ?", agentId);
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            jdbc.update("DELETE FROM agents WHERE agent_id = ? AND tenant_id = ?", agentId, tenantId);
+        } else {
+            jdbc.update("DELETE FROM agents WHERE agent_id = ?", agentId);
+        }
     }
 
     public void upsertFromRun(@NonNull String agentId, @NonNull String framework) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO agents (agent_id, name, framework, status, tags, created_at, updated_at)
-            VALUES (?, ?, ?, 'healthy', '[]'::jsonb, NOW(), NOW())
+            INSERT INTO agents (agent_id, tenant_id, name, framework, status, tags, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'healthy', '[]'::jsonb, NOW(), NOW())
             ON CONFLICT (agent_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 framework = EXCLUDED.framework,
                 updated_at = NOW()
             """;
-        jdbc.update(sql, agentId, agentId);
+        jdbc.update(sql, agentId, tenantId != null ? tenantId : "default", agentId, framework);
     }
 
     private @NonNull String toJson(@NonNull Object value) {

@@ -2,6 +2,7 @@ package com.chorus.observe.api;
 
 import com.chorus.observe.model.Dataset;
 import com.chorus.observe.persistence.*;
+import com.chorus.observe.security.TenantContext;
 import com.chorus.observe.service.DatasetService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -9,7 +10,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.util.List;
 import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -26,7 +26,16 @@ class DatasetControllerTest {
         LlmCallRepository llmRepo = new InMemoryLlmCallRepository();
         DatasetService service = new DatasetService(repo, itemRepo, runRepo, llmRepo, new ObjectMapper());
         DatasetController controller = new DatasetController(service);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+            .addFilters((request, response, chain) -> {
+                TenantContext.set("default", null, null);
+                try {
+                    chain.doFilter(request, response);
+                } finally {
+                    TenantContext.clear();
+                }
+            })
+            .build();
 
         mvc.perform(post("/api/v1/datasets")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -48,7 +57,16 @@ class DatasetControllerTest {
         LlmCallRepository llmRepo = new InMemoryLlmCallRepository();
         DatasetService service = new DatasetService(repo, itemRepo, runRepo, llmRepo, new ObjectMapper());
         DatasetController controller = new DatasetController(service);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+            .addFilters((request, response, chain) -> {
+                TenantContext.set("default", null, null);
+                try {
+                    chain.doFilter(request, response);
+                } finally {
+                    TenantContext.clear();
+                }
+            })
+            .build();
 
         repo.save(new Dataset("ds-1", "Test", null, Map.of(), "manual", Map.of(), null, null));
 

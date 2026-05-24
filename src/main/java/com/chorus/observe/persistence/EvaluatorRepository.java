@@ -61,6 +61,10 @@ public class EvaluatorRepository {
         return jdbc.query("SELECT * FROM evaluators ORDER BY created_at DESC", rowMapper);
     }
 
+    public @NonNull List<Evaluator> findByKind(@NonNull String kind) {
+        return jdbc.query("SELECT * FROM evaluators WHERE kind = ? ORDER BY created_at DESC", rowMapper, kind);
+    }
+
     public void deleteById(@NonNull String evaluatorId) {
         jdbc.update("DELETE FROM evaluators WHERE evaluator_id = ?", evaluatorId);
     }

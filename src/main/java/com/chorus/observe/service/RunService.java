@@ -31,6 +31,10 @@ public class RunService {
         return runRepository.findById(runId);
     }
 
+    public @NonNull Optional<Run> getRunForTenant(@NonNull String runId, @NonNull String tenantId) {
+        return runRepository.findByIdAndTenantId(runId, tenantId);
+    }
+
     public @NonNull List<Run> listRuns(@NonNull RunQuery query) {
         return runRepository.findAll(query);
     }
@@ -41,6 +45,10 @@ public class RunService {
 
     public boolean runExists(@NonNull String runId) {
         return runRepository.exists(runId);
+    }
+
+    public boolean runExistsForTenant(@NonNull String runId, @NonNull String tenantId) {
+        return runRepository.existsForTenant(runId, tenantId);
     }
 
     public @NonNull List<RunEvalSummary> getEvalSummariesForRuns(@NonNull List<String> runIds) {

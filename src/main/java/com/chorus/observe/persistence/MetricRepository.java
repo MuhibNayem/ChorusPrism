@@ -34,11 +34,11 @@ public class MetricRepository {
 
     public void save(@NonNull MetricSnapshot snapshot) {
         String sql = """
-            INSERT INTO metric_snapshots (snapshot_id, metric_name, value, tags, timestamp)
-            VALUES (?, ?, ?, ?::jsonb, ?)
+            INSERT INTO metric_snapshots (snapshot_id, tenant_id, metric_name, value, tags, timestamp)
+            VALUES (?, ?, ?, ?, ?::jsonb, ?)
             """;
         jdbc.update(sql,
-            snapshot.snapshotId(), snapshot.metricName(), snapshot.value(),
+            snapshot.snapshotId(), snapshot.tenantId(), snapshot.metricName(), snapshot.value(),
             toJson(snapshot.tags()), Timestamp.from(snapshot.timestamp())
         );
     }
@@ -48,6 +48,13 @@ public class MetricRepository {
         return jdbc.query(
             "SELECT * FROM metric_snapshots WHERE metric_name = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT ?",
             rowMapper, metricName, Timestamp.from(from), Timestamp.from(to), limit);
+    }
+
+    public @NonNull List<MetricSnapshot> findByTenantAndNameAndTimeRange(
+            @NonNull String tenantId, @NonNull String metricName, @NonNull Instant from, @NonNull Instant to, int limit) {
+        return jdbc.query(
+            "SELECT * FROM metric_snapshots WHERE tenant_id = ? AND metric_name = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT ?",
+            rowMapper, tenantId, metricName, Timestamp.from(from), Timestamp.from(to), limit);
     }
 
     public @NonNull List<MetricAggregate> aggregateByHour(
@@ -101,6 +108,7 @@ public class MetricRepository {
             try {
                 return new MetricSnapshot(
                     rs.getString("snapshot_id"),
+                    rs.getString("tenant_id"),
                     rs.getString("metric_name"),
                     rs.getDouble("value"),
                     mapper.readValue(rs.getString("tags"), new TypeReference<Map<String, String>>() {}),

@@ -38,7 +38,7 @@ public class UserService {
                                     @NonNull String displayName) {
         String userId = "usr-" + UUID.randomUUID().toString().substring(0, 8);
         User user = new User(userId, tenantId, email.toLowerCase(), passwordEncoder.encode(rawPassword),
-            displayName, User.Status.ACTIVE, null, Instant.now(), Instant.now());
+            displayName, User.Status.ACTIVE, null, User.AuthSource.LOCAL, Instant.now(), Instant.now());
         userRepository.save(user);
         LOG.info("Created user: {} in tenant {}", email, tenantId);
         return user;

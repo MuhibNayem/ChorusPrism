@@ -21,6 +21,13 @@ public class InMemorySpanRepository extends SpanRepository {
     }
 
     @Override
+    public void saveAll(List<Span> spans) {
+        for (Span span : spans) {
+            save(span);
+        }
+    }
+
+    @Override
     public List<Span> findByRunId(String runId) {
         return store.stream()
             .filter(s -> s.runId().equals(runId))

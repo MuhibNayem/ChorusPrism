@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.TraceCluster;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,10 +37,12 @@ public class TraceClusterRepository {
     }
 
     public void save(@NonNull TraceCluster cluster) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO trace_clusters (cluster_id, label, description, run_count, avg_score, avg_cost, period_start, period_end, metadata, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
+            INSERT INTO trace_clusters (cluster_id, tenant_id, label, description, run_count, avg_score, avg_cost, period_start, period_end, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
             ON CONFLICT (cluster_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 label = EXCLUDED.label,
                 description = EXCLUDED.description,
                 run_count = EXCLUDED.run_count,
@@ -50,7 +53,7 @@ public class TraceClusterRepository {
                 metadata = EXCLUDED.metadata
             """;
         jdbc.update(sql,
-            cluster.clusterId(), cluster.label(), cluster.description(),
+            cluster.clusterId(), tenantId != null ? tenantId : "default", cluster.label(), cluster.description(),
             cluster.runCount(), cluster.avgScore(), cluster.avgCost(),
             Timestamp.from(cluster.periodStart()), Timestamp.from(cluster.periodEnd()),
             toJson(cluster.metadata()), Timestamp.from(cluster.createdAt())
@@ -58,7 +61,12 @@ public class TraceClusterRepository {
     }
 
     public @NonNull Optional<TraceCluster> findById(@NonNull String clusterId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM trace_clusters WHERE cluster_id = ? AND tenant_id = ?", rowMapper, clusterId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM trace_clusters WHERE cluster_id = ?", rowMapper, clusterId));
         } catch (EmptyResultDataAccessException e) {
@@ -67,29 +75,57 @@ public class TraceClusterRepository {
     }
 
     public @NonNull List<TraceCluster> findAll() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM trace_clusters WHERE tenant_id = ? ORDER BY created_at DESC", rowMapper, tenantId);
+        }
         return jdbc.query("SELECT * FROM trace_clusters ORDER BY created_at DESC", rowMapper);
     }
 
     public @NonNull List<TraceCluster> findAll(int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM trace_clusters WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM trace_clusters ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, limit, offset);
     }
 
     public long count() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM trace_clusters WHERE tenant_id = ?", Long.class, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM trace_clusters", Long.class);
         return count != null ? count : 0L;
     }
 
     public @NonNull List<TraceCluster> findByPeriod(@NonNull Instant start, @NonNull Instant end) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM trace_clusters WHERE period_start >= ? AND period_end <= ? AND tenant_id = ? ORDER BY run_count DESC",
+                rowMapper, Timestamp.from(start), Timestamp.from(end), tenantId);
+        }
         return jdbc.query("SELECT * FROM trace_clusters WHERE period_start >= ? AND period_end <= ? ORDER BY run_count DESC",
             rowMapper, Timestamp.from(start), Timestamp.from(end));
     }
 
     public @NonNull List<TraceCluster> findByPeriod(@NonNull Instant start, @NonNull Instant end, int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM trace_clusters WHERE period_start >= ? AND period_end <= ? AND tenant_id = ? ORDER BY run_count DESC LIMIT ? OFFSET ?",
+                rowMapper, Timestamp.from(start), Timestamp.from(end), tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM trace_clusters WHERE period_start >= ? AND period_end <= ? ORDER BY run_count DESC LIMIT ? OFFSET ?",
             rowMapper, Timestamp.from(start), Timestamp.from(end), limit, offset);
     }
 
     public long countByPeriod(@NonNull Instant start, @NonNull Instant end) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM trace_clusters WHERE period_start >= ? AND period_end <= ? AND tenant_id = ?", Long.class, Timestamp.from(start), Timestamp.from(end), tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM trace_clusters WHERE period_start >= ? AND period_end <= ?", Long.class, Timestamp.from(start), Timestamp.from(end));
         return count != null ? count : 0L;
     }

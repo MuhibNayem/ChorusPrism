@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.PromptAbTest;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,10 +36,12 @@ public class PromptAbTestRepository {
     }
 
     public void save(@NonNull PromptAbTest test) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO prompt_ab_tests (test_id, dataset_id, prompt_a_id, prompt_b_id, status, winner_id, p_value, summary_metrics, created_at, finished_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)
+            INSERT INTO prompt_ab_tests (test_id, tenant_id, dataset_id, prompt_a_id, prompt_b_id, status, winner_id, p_value, summary_metrics, created_at, finished_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)
             ON CONFLICT (test_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 dataset_id = EXCLUDED.dataset_id,
                 prompt_a_id = EXCLUDED.prompt_a_id,
                 prompt_b_id = EXCLUDED.prompt_b_id,
@@ -49,7 +52,7 @@ public class PromptAbTestRepository {
                 finished_at = EXCLUDED.finished_at
             """;
         jdbc.update(sql,
-            test.testId(), test.datasetId(), test.promptAId(), test.promptBId(),
+            test.testId(), tenantId != null ? tenantId : "default", test.datasetId(), test.promptAId(), test.promptBId(),
             test.status().name(), test.winnerId(), test.pValue(),
             toJson(test.summaryMetrics()), Timestamp.from(test.createdAt()),
             test.finishedAt() != null ? Timestamp.from(test.finishedAt()) : null
@@ -57,7 +60,12 @@ public class PromptAbTestRepository {
     }
 
     public @NonNull Optional<PromptAbTest> findById(@NonNull String testId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM prompt_ab_tests WHERE test_id = ? AND tenant_id = ?", rowMapper, testId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM prompt_ab_tests WHERE test_id = ?", rowMapper, testId));
         } catch (EmptyResultDataAccessException e) {
@@ -66,33 +74,64 @@ public class PromptAbTestRepository {
     }
 
     public @NonNull List<PromptAbTest> findAll() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM prompt_ab_tests WHERE tenant_id = ? ORDER BY created_at DESC", rowMapper, tenantId);
+        }
         return jdbc.query("SELECT * FROM prompt_ab_tests ORDER BY created_at DESC", rowMapper);
     }
 
     public @NonNull List<PromptAbTest> findAll(int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM prompt_ab_tests WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM prompt_ab_tests ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, limit, offset);
     }
 
     public long count() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM prompt_ab_tests WHERE tenant_id = ?", Long.class, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM prompt_ab_tests", Long.class);
         return count != null ? count : 0L;
     }
 
     public @NonNull List<PromptAbTest> findByStatus(PromptAbTest.Status status) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM prompt_ab_tests WHERE status = ? AND tenant_id = ? ORDER BY created_at DESC", rowMapper, status.name(), tenantId);
+        }
         return jdbc.query("SELECT * FROM prompt_ab_tests WHERE status = ? ORDER BY created_at DESC", rowMapper, status.name());
     }
 
     public @NonNull List<PromptAbTest> findByStatus(PromptAbTest.Status status, int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM prompt_ab_tests WHERE status = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, status.name(), tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM prompt_ab_tests WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, status.name(), limit, offset);
     }
 
     public long countByStatus(PromptAbTest.Status status) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM prompt_ab_tests WHERE status = ? AND tenant_id = ?", Long.class, status.name(), tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM prompt_ab_tests WHERE status = ?", Long.class, status.name());
         return count != null ? count : 0L;
     }
 
     public void deleteById(@NonNull String testId) {
-        jdbc.update("DELETE FROM prompt_ab_tests WHERE test_id = ?", testId);
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            jdbc.update("DELETE FROM prompt_ab_tests WHERE test_id = ? AND tenant_id = ?", testId, tenantId);
+        } else {
+            jdbc.update("DELETE FROM prompt_ab_tests WHERE test_id = ?", testId);
+        }
     }
 
     private @NonNull String toJson(@NonNull Object value) {

@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -150,6 +151,7 @@ public class RedTeamService {
         return run;
     }
 
+    @Transactional
     public void startRedTeamRun(@NonNull String redTeamRunId) {
         Optional<RedTeamRun> opt = runRepository.findById(redTeamRunId);
         if (opt.isEmpty()) return;

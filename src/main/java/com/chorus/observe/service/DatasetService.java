@@ -17,6 +17,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Function;
@@ -25,7 +26,7 @@ import java.util.stream.Collectors;
 /**
  * Service for dataset management.
  */
-public class DatasetService {
+public class DatasetService /* TEST MARK */ {
 
     private static final Logger LOG = LoggerFactory.getLogger(DatasetService.class);
 
@@ -79,6 +80,7 @@ public class DatasetService {
         return new PagedResult<>(datasetRepository.findBySource(source, size, offset), datasetRepository.countBySource(source), page, size);
     }
 
+    @Transactional
     public void deleteDataset(@NonNull String datasetId) {
         datasetItemRepository.deleteByDatasetId(datasetId);
         datasetRepository.deleteById(datasetId);

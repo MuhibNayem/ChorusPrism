@@ -37,3 +37,6 @@ logs/
 
 # Docker
 docker-compose.override.yml
+
+# Runtime data
+exports/

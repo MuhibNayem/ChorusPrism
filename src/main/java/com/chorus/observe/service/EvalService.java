@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.*;
 import jakarta.annotation.PostConstruct;
@@ -20,6 +21,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -33,6 +36,10 @@ import java.util.stream.Collectors;
  *   <li>{@code llm_judge} — LLM-as-judge via {@link AgentInvoker}</li>
  * </ul>
  * <p>
+ * N-run scoring: each eval case is executed a minimum of N times (configurable via
+ * {@code minRuns}, default 1). The reported score is the median of all runs,
+ * preventing single-run LLM non-determinism from causing false failures.
+ * <p>
  * Crash recovery: on startup, any eval runs in {@code RUNNING} state for more than
  * 30 minutes are automatically marked {@code FAILED} with a recovery note.
  */
@@ -45,6 +52,7 @@ public class EvalService {
     private final DatasetItemRepository datasetItemRepository;
     private final EvalRunRepository evalRunRepository;
     private final EvalResultRepository evalResultRepository;
+    private final EvalResultRunRepository evalResultRunRepository;
     private final AgentInvoker agentInvoker;
     private final ObjectMapper mapper;
     private final ExecutorService executor;
@@ -58,7 +66,7 @@ public class EvalService {
             @NonNull EvalResultRepository evalResultRepository,
             @NonNull AgentInvoker agentInvoker,
             @NonNull ObjectMapper mapper) {
-        this(datasetRepository, datasetItemRepository, evalRunRepository, evalResultRepository, agentInvoker, mapper, null);
+        this(datasetRepository, datasetItemRepository, evalRunRepository, evalResultRepository, null, agentInvoker, mapper, null);
     }
 
     public EvalService(
@@ -66,6 +74,7 @@ public class EvalService {
             @NonNull DatasetItemRepository datasetItemRepository,
             @NonNull EvalRunRepository evalRunRepository,
             @NonNull EvalResultRepository evalResultRepository,
+            @Nullable EvalResultRunRepository evalResultRunRepository,
             @NonNull AgentInvoker agentInvoker,
             @NonNull ObjectMapper mapper,
             @Nullable MetricsService metricsService) {
@@ -73,6 +82,7 @@ public class EvalService {
         this.datasetItemRepository = Objects.requireNonNull(datasetItemRepository);
         this.evalRunRepository = Objects.requireNonNull(evalRunRepository);
         this.evalResultRepository = Objects.requireNonNull(evalResultRepository);
+        this.evalResultRunRepository = evalResultRunRepository;
         this.agentInvoker = Objects.requireNonNull(agentInvoker);
         this.mapper = Objects.requireNonNull(mapper);
         this.metricsService = metricsService;
@@ -91,7 +101,7 @@ public class EvalService {
                         run.evalRunId(), run.startedAt(), STALE_RUN_THRESHOLD);
                     evalRunRepository.save(new EvalRun(
                         run.evalRunId(), run.datasetId(), run.name(),
-                        run.agentConfig(), run.scorerConfig(), run.parallelism(),
+                        run.agentConfig(), run.scorerConfig(), run.parallelism(), run.minRuns(),
                         EvalRun.Status.FAILED, run.progressPercent(),
                         Map.of("error", "Recovered from crash: run exceeded " + STALE_RUN_THRESHOLD.toMinutes() + " minutes"),
                         run.startedAt(), Instant.now(), run.createdAt()
@@ -109,9 +119,20 @@ public class EvalService {
 
     @Timed(value = "eval.submit", description = "Time spent submitting an eval run")
     @Counted(value = "eval.submit.count", description = "Total number of eval run submissions")
-    public @NonNull EvalRun submitEvalRun(@NonNull String datasetId, @Nullable String name, @NonNull Map<String, Object> agentConfig, @NonNull Map<String, Object> scorerConfig, int parallelism) {
+    public @NonNull EvalRun submitEvalRun(@NonNull String datasetId, @Nullable String name,
+                                          @NonNull Map<String, Object> agentConfig,
+                                          @NonNull Map<String, Object> scorerConfig, int parallelism) {
+        return submitEvalRun(datasetId, name, agentConfig, scorerConfig, parallelism, 1);
+    }
+
+    public @NonNull EvalRun submitEvalRun(@NonNull String datasetId, @Nullable String name,
+                                          @NonNull Map<String, Object> agentConfig,
+                                          @NonNull Map<String, Object> scorerConfig,
+                                          int parallelism, int minRuns) {
+        if (minRuns < 1) minRuns = 1;
         String evalRunId = "eval-" + UUID.randomUUID().toString().substring(0, 8);
-        EvalRun evalRun = new EvalRun(evalRunId, datasetId, name, agentConfig, scorerConfig, parallelism, EvalRun.Status.PENDING, 0, Map.of(), null, null, Instant.now());
+        EvalRun evalRun = new EvalRun(evalRunId, datasetId, name, agentConfig, scorerConfig, parallelism, minRuns,
+            EvalRun.Status.PENDING, 0, Map.of(), null, null, Instant.now());
         evalRunRepository.save(evalRun);
         if (metricsService != null) {
             metricsService.incrementEvalRunsTotal();
@@ -121,6 +142,7 @@ public class EvalService {
 
     @Timed(value = "eval.start", description = "Time spent starting an eval run")
     @Counted(value = "eval.start.count", description = "Total number of eval run starts")
+    @Transactional
     public void startEvalRun(@NonNull String evalRunId) {
         Optional<EvalRun> opt = evalRunRepository.findById(evalRunId);
         if (opt.isEmpty()) return;
@@ -129,7 +151,7 @@ public class EvalService {
 
         evalRunRepository.save(new EvalRun(
             evalRun.evalRunId(), evalRun.datasetId(), evalRun.name(),
-            evalRun.agentConfig(), evalRun.scorerConfig(), evalRun.parallelism(),
+            evalRun.agentConfig(), evalRun.scorerConfig(), evalRun.parallelism(), evalRun.minRuns(),
             EvalRun.Status.RUNNING, 0, evalRun.summaryMetrics(),
             Instant.now(), evalRun.finishedAt(), evalRun.createdAt()
         ));
@@ -167,47 +189,117 @@ public class EvalService {
             EvalDataset dataset = EvalDataset.of(evalRun.name() != null ? evalRun.name() : "eval", cases);
 
             EvalScorer scorer = resolveScorer(evalRun.scorerConfig());
-            ParallelEvalRunner parallelRunner = new ParallelEvalRunner(evalRun.evalRunId(), evalRun.parallelism());
-            EvalReport report = parallelRunner.run(dataset, runner, scorer);
+            int minRuns = Math.max(1, evalRun.minRuns());
 
-            int processed = 0;
-            int saveInterval = Math.max(1, report.results().size() / 10);
-            for (EvalResult result : report.results()) {
-                if (cancelledRuns.remove(evalRunId)) {
+            AtomicInteger processed = new AtomicInteger(0);
+            int totalSteps = cases.size() * minRuns;
+            int saveInterval = Math.max(1, totalSteps / 10);
+
+            int parallelism = Math.max(1, evalRun.parallelism());
+            Semaphore semaphore = new Semaphore(parallelism);
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+            for (EvalCase evalCase : cases) {
+                if (cancelledRuns.contains(evalRunId)) {
                     completeEvalRun(evalRunId, EvalRun.Status.CANCELLED, Map.of("error", "Cancelled by user"));
                     return;
                 }
-                EvalResultRecord record = new EvalResultRecord(
-                    "res-" + UUID.randomUUID().toString().substring(0, 8),
-                    evalRunId, result.caseId(), null, null,
-                    result.actualOutput(), result.score(), result.passed(),
-                    0L, result.reasoning(), Instant.now()
-                );
-                evalResultRepository.save(record);
-                processed++;
-                if (processed % saveInterval == 0) {
-                    int progress = (int) ((processed * 100.0) / report.results().size());
-                    evalRunRepository.save(new EvalRun(
-                        evalRun.evalRunId(), evalRun.datasetId(), evalRun.name(),
-                        evalRun.agentConfig(), evalRun.scorerConfig(), evalRun.parallelism(),
-                        EvalRun.Status.RUNNING, progress, evalRun.summaryMetrics(),
-                        evalRun.startedAt(), evalRun.finishedAt(), evalRun.createdAt()
-                    ));
-                }
+
+                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                    try {
+                        semaphore.acquire();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Eval interrupted", e);
+                    }
+                    try {
+                        if (cancelledRuns.contains(evalRunId)) {
+                            return;
+                        }
+
+                        List<EvalResult> nRunResults = new ArrayList<>();
+                        for (int runNum = 1; runNum <= minRuns; runNum++) {
+                            String actualOutput = runner.apply(evalCase.input());
+                            EvalResult singleResult = scorer.score(evalCase, actualOutput);
+                            nRunResults.add(singleResult);
+                            int p = processed.incrementAndGet();
+
+                            if (p % saveInterval == 0) {
+                                int progress = (int) ((p * 100.0) / totalSteps);
+                                evalRunRepository.save(new EvalRun(
+                                    evalRun.evalRunId(), evalRun.datasetId(), evalRun.name(),
+                                    evalRun.agentConfig(), evalRun.scorerConfig(), evalRun.parallelism(), evalRun.minRuns(),
+                                    EvalRun.Status.RUNNING, progress, evalRun.summaryMetrics(),
+                                    evalRun.startedAt(), evalRun.finishedAt(), evalRun.createdAt()
+                                ));
+                            }
+                        }
+
+                        double medianScore = computeMedian(nRunResults.stream().mapToDouble(EvalResult::score).sorted().toArray());
+                        boolean majorityPassed = nRunResults.stream().filter(EvalResult::passed).count() > nRunResults.size() / 2;
+                        EvalResult representative = nRunResults.get(nRunResults.size() / 2);
+
+                        EvalResultRecord record = new EvalResultRecord(
+                            "res-" + UUID.randomUUID().toString().substring(0, 8),
+                            evalRunId, evalCase.id(), null, null,
+                            representative.actualOutput(), medianScore, majorityPassed,
+                            0L, representative.reasoning(), Instant.now()
+                        );
+                        evalResultRepository.save(record);
+
+                        if (evalResultRunRepository != null && minRuns > 1) {
+                            for (int runNum = 1; runNum <= nRunResults.size(); runNum++) {
+                                EvalResult r = nRunResults.get(runNum - 1);
+                                EvalResultRun resultRun = new EvalResultRun(
+                                    "err-" + UUID.randomUUID().toString().substring(0, 8),
+                                    record.resultId(), runNum, r.score(), r.passed(),
+                                    r.actualOutput(), r.reasoning(), 0L, Instant.now()
+                                );
+                                evalResultRunRepository.save(resultRun);
+                            }
+                        }
+                    } finally {
+                        semaphore.release();
+                    }
+                }, executor);
+                futures.add(future);
             }
 
-            Map<String, Object> summary = Map.of(
-                "totalCases", report.totalCases(),
-                "passed", report.passed(),
-                "passRate", report.passRate(),
-                "avgScore", report.avgScore(),
-                "durationMs", report.duration().toMillis()
-            );
+            try {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            } catch (Exception e) {
+                LOG.error("Eval run {} parallel execution failed", evalRunId, e);
+                completeEvalRun(evalRunId, EvalRun.Status.FAILED, Map.of("error", e.getMessage()));
+                return;
+            }
+
+            if (cancelledRuns.remove(evalRunId)) {
+                completeEvalRun(evalRunId, EvalRun.Status.CANCELLED, Map.of("error", "Cancelled by user"));
+                return;
+            }
+
+            List<EvalResultRecord> allRecords = evalResultRepository.findByEvalRunId(evalRunId);
+            long passedCount = allRecords.stream().filter(EvalResultRecord::passed).count();
+            double avgScore = allRecords.stream().mapToDouble(EvalResultRecord::score).average().orElse(0.0);
+
+            Map<String, Object> summary = new HashMap<>();
+            summary.put("totalCases", cases.size());
+            summary.put("passed", passedCount);
+            summary.put("passRate", cases.isEmpty() ? 0.0 : (double) passedCount / cases.size());
+            summary.put("avgScore", avgScore);
+            summary.put("minRuns", minRuns);
             completeEvalRun(evalRunId, EvalRun.Status.COMPLETED, summary);
         } catch (Exception e) {
             LOG.error("Eval run {} failed", evalRunId, e);
             completeEvalRun(evalRunId, EvalRun.Status.FAILED, Map.of("error", e.getMessage()));
         }
+    }
+
+    private double computeMedian(double[] sortedScores) {
+        int n = sortedScores.length;
+        if (n == 0) return 0.0;
+        if (n % 2 == 1) return sortedScores[n / 2];
+        return (sortedScores[n / 2 - 1] + sortedScores[n / 2]) / 2.0;
     }
 
     private void completeEvalRun(@NonNull String evalRunId, EvalRun.Status status, @NonNull Map<String, Object> summary) {
@@ -217,7 +309,7 @@ public class EvalService {
         int progress = status == EvalRun.Status.COMPLETED ? 100 : (status == EvalRun.Status.FAILED ? 0 : evalRun.progressPercent());
         evalRunRepository.save(new EvalRun(
             evalRun.evalRunId(), evalRun.datasetId(), evalRun.name(),
-            evalRun.agentConfig(), evalRun.scorerConfig(), evalRun.parallelism(),
+            evalRun.agentConfig(), evalRun.scorerConfig(), evalRun.parallelism(), evalRun.minRuns(),
             status, progress, summary, evalRun.startedAt(), Instant.now(), evalRun.createdAt()
         ));
     }

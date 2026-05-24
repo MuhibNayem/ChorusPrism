@@ -61,6 +61,40 @@ public class SpanRepository {
         );
     }
 
+    public void saveAll(@NonNull List<Span> spans) {
+        if (spans.isEmpty()) return;
+        String sql = """
+            INSERT INTO spans (span_id, run_id, parent_span_id, span_name, kind, start_time, end_time, attributes, events, status, span_type, first_token_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?)
+            ON CONFLICT (span_id) DO UPDATE SET
+                run_id = EXCLUDED.run_id,
+                parent_span_id = EXCLUDED.parent_span_id,
+                span_name = EXCLUDED.span_name,
+                kind = EXCLUDED.kind,
+                start_time = EXCLUDED.start_time,
+                end_time = EXCLUDED.end_time,
+                attributes = EXCLUDED.attributes,
+                events = EXCLUDED.events,
+                status = EXCLUDED.status,
+                span_type = EXCLUDED.span_type,
+                first_token_at = EXCLUDED.first_token_at
+            """;
+        jdbc.batchUpdate(sql, spans, spans.size(), (ps, span) -> {
+            ps.setString(1, span.spanId());
+            ps.setString(2, span.runId());
+            ps.setString(3, span.parentSpanId());
+            ps.setString(4, span.spanName());
+            ps.setString(5, span.kind().name());
+            ps.setTimestamp(6, Timestamp.from(span.startTime()));
+            ps.setTimestamp(7, span.endTime() != null ? Timestamp.from(span.endTime()) : null);
+            ps.setString(8, toJson(span.attributes()));
+            ps.setString(9, toJson(span.events()));
+            ps.setString(10, span.status().name());
+            ps.setString(11, span.spanType());
+            ps.setTimestamp(12, span.firstTokenAt() != null ? Timestamp.from(span.firstTokenAt()) : null);
+        });
+    }
+
     public @NonNull List<Span> findByRunId(@NonNull String runId) {
         return jdbc.query(
             "SELECT * FROM spans WHERE run_id = ? ORDER BY start_time ASC",
@@ -86,6 +120,31 @@ public class SpanRepository {
 
     public void deleteByRunId(@NonNull String runId) {
         jdbc.update("DELETE FROM spans WHERE run_id = ?", runId);
+    }
+
+    public boolean runBelongsToTenant(@NonNull String runId, @NonNull String tenantId) {
+        Long count = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM runs WHERE run_id = ? AND tenant_id = ?", Long.class, runId, tenantId);
+        return count != null && count > 0;
+    }
+
+    public @NonNull List<Span> findByTenantId(@NonNull String tenantId, int limit, int offset) {
+        return jdbc.query("""
+            SELECT s.* FROM spans s
+            JOIN runs r ON s.run_id = r.run_id
+            WHERE r.tenant_id = ?
+            ORDER BY s.start_time DESC
+            LIMIT ? OFFSET ?
+            """, rowMapper, tenantId, limit, offset);
+    }
+
+    public long countByTenantId(@NonNull String tenantId) {
+        Long count = jdbc.queryForObject("""
+            SELECT COUNT(*) FROM spans s
+            JOIN runs r ON s.run_id = r.run_id
+            WHERE r.tenant_id = ?
+            """, Long.class, tenantId);
+        return count != null ? count : 0L;
     }
 
     private @NonNull String toJson(@NonNull Object value) {

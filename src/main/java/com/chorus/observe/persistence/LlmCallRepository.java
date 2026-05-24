@@ -56,6 +56,42 @@ public class LlmCallRepository {
         );
     }
 
+    public void saveAll(@NonNull List<LlmCall> calls) {
+        if (calls.isEmpty()) return;
+        String sql = """
+            INSERT INTO llm_calls (call_id, span_id, run_id, provider, model, input_tokens, output_tokens, cost_usd, latency_ms, prompt, completion, finish_reasons, messages)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)
+            ON CONFLICT (call_id) DO UPDATE SET
+                span_id = EXCLUDED.span_id,
+                run_id = EXCLUDED.run_id,
+                provider = EXCLUDED.provider,
+                model = EXCLUDED.model,
+                input_tokens = EXCLUDED.input_tokens,
+                output_tokens = EXCLUDED.output_tokens,
+                cost_usd = EXCLUDED.cost_usd,
+                latency_ms = EXCLUDED.latency_ms,
+                prompt = EXCLUDED.prompt,
+                completion = EXCLUDED.completion,
+                finish_reasons = EXCLUDED.finish_reasons,
+                messages = EXCLUDED.messages
+            """;
+        jdbc.batchUpdate(sql, calls, calls.size(), (ps, call) -> {
+            ps.setString(1, call.callId());
+            ps.setString(2, call.spanId());
+            ps.setString(3, call.runId());
+            ps.setString(4, call.provider());
+            ps.setString(5, call.model());
+            ps.setInt(6, call.inputTokens());
+            ps.setInt(7, call.outputTokens());
+            ps.setBigDecimal(8, call.costUsd());
+            ps.setLong(9, call.latencyMs());
+            ps.setString(10, call.prompt());
+            ps.setString(11, call.completion());
+            ps.setString(12, toJson(call.finishReasons()));
+            ps.setString(13, call.messages() != null ? toJson(call.messages()) : null);
+        });
+    }
+
     public @NonNull List<LlmCall> findByRunId(@NonNull String runId) {
         return jdbc.query(
             "SELECT * FROM llm_calls WHERE run_id = ? ORDER BY created_at ASC",

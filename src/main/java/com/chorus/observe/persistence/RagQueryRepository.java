@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.RagQuery;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,10 +32,12 @@ public class RagQueryRepository {
     }
 
     public void save(@NonNull RagQuery query) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO rag_queries (query_id, span_id, run_id, query_text, retrieved_chunks, similarity_scores, latency_ms, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+            INSERT INTO rag_queries (query_id, tenant_id, span_id, run_id, query_text, retrieved_chunks, similarity_scores, latency_ms, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
             ON CONFLICT (query_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 span_id = EXCLUDED.span_id,
                 run_id = EXCLUDED.run_id,
                 query_text = EXCLUDED.query_text,
@@ -44,13 +47,19 @@ public class RagQueryRepository {
                 metadata = EXCLUDED.metadata
             """;
         jdbc.update(sql,
-            query.queryId(), query.spanId(), query.runId(), query.query(),
+            query.queryId(), tenantId != null ? tenantId : "default", query.spanId(), query.runId(), query.query(),
             query.retrievedChunks(), query.similarityScores(), query.latencyMs(),
             toJson(query.metadata())
         );
     }
 
     public @NonNull List<RagQuery> findByRunId(@NonNull String runId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query(
+                "SELECT * FROM rag_queries WHERE run_id = ? AND tenant_id = ? ORDER BY query_id ASC",
+                rowMapper, runId, tenantId);
+        }
         return jdbc.query(
             "SELECT * FROM rag_queries WHERE run_id = ? ORDER BY query_id ASC",
             rowMapper, runId);

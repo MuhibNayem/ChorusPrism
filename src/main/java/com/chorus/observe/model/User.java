@@ -14,6 +14,7 @@ public record User(
     @Nullable String displayName,
     @NonNull Status status,
     @Nullable Instant lastLoginAt,
+    @NonNull AuthSource authSource,
     @NonNull Instant createdAt,
     @NonNull Instant updatedAt
 ) {
@@ -23,9 +24,11 @@ public record User(
         Objects.requireNonNull(email);
         Objects.requireNonNull(passwordHash);
         Objects.requireNonNull(status);
+        Objects.requireNonNull(authSource);
         Objects.requireNonNull(createdAt);
         Objects.requireNonNull(updatedAt);
     }
 
     public enum Status { ACTIVE, INACTIVE, LOCKED }
+    public enum AuthSource { LOCAL, OAUTH2, SAML }
 }

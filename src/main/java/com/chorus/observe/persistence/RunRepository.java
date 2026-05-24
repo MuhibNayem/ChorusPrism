@@ -39,9 +39,10 @@ public class RunRepository {
 
     public void save(@NonNull Run run) {
         String sql = """
-            INSERT INTO runs (run_id, framework, agent_id, model, start_time, end_time, status, tags, metadata, total_tokens, total_cost, latency_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?)
+            INSERT INTO runs (run_id, tenant_id, framework, agent_id, model, start_time, end_time, status, tags, metadata, total_tokens, total_cost, latency_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?)
             ON CONFLICT (run_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 framework = EXCLUDED.framework,
                 agent_id = EXCLUDED.agent_id,
                 model = EXCLUDED.model,
@@ -55,7 +56,7 @@ public class RunRepository {
                 latency_ms = EXCLUDED.latency_ms
             """;
         jdbc.update(sql,
-            run.runId(), run.framework(), run.agentId(), run.model(),
+            run.runId(), run.tenantId(), run.framework(), run.agentId(), run.model(),
             Timestamp.from(run.startTime()),
             run.endTime() != null ? Timestamp.from(run.endTime()) : null,
             run.status().name(),
@@ -76,10 +77,23 @@ public class RunRepository {
         }
     }
 
+    public @NonNull Optional<Run> findByIdAndTenantId(@NonNull String runId, @NonNull String tenantId) {
+        try {
+            return Optional.ofNullable(jdbc.queryForObject(
+                "SELECT * FROM runs WHERE run_id = ? AND tenant_id = ?", rowMapper, runId, tenantId));
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        }
+    }
+
     public @NonNull List<Run> findAll(@NonNull RunQuery query) {
         StringBuilder sql = new StringBuilder("SELECT * FROM runs WHERE 1=1");
         List<Object> args = new ArrayList<>();
 
+        if (query.tenantId() != null) {
+            sql.append(" AND tenant_id = ?");
+            args.add(query.tenantId());
+        }
         if (query.framework() != null) {
             sql.append(" AND framework = ?");
             args.add(query.framework());
@@ -140,6 +154,10 @@ public class RunRepository {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM runs WHERE 1=1");
         List<Object> args = new ArrayList<>();
 
+        if (query.tenantId() != null) {
+            sql.append(" AND tenant_id = ?");
+            args.add(query.tenantId());
+        }
         if (query.framework() != null) {
             sql.append(" AND framework = ?");
             args.add(query.framework());
@@ -181,6 +199,22 @@ public class RunRepository {
         return count != null && count > 0;
     }
 
+    public boolean existsForTenant(@NonNull String runId, @NonNull String tenantId) {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM runs WHERE run_id = ? AND tenant_id = ?", Long.class, runId, tenantId);
+        return count != null && count > 0;
+    }
+
+    public @NonNull List<Run> findByTenantId(@NonNull String tenantId, int limit, int offset) {
+        return jdbc.query(
+            "SELECT * FROM runs WHERE tenant_id = ? ORDER BY start_time DESC LIMIT ? OFFSET ?",
+            rowMapper, tenantId, limit, offset);
+    }
+
+    public long countByTenantId(@NonNull String tenantId) {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM runs WHERE tenant_id = ?", Long.class, tenantId);
+        return count != null ? count : 0L;
+    }
+
     private @NonNull String toJson(@NonNull Object value) {
         try {
             return mapper.writeValueAsString(value);
@@ -190,6 +224,7 @@ public class RunRepository {
     }
 
     public record RunQuery(
+        @Nullable String tenantId,
         @Nullable String framework,
         @Nullable String agentId,
         @Nullable String model,
@@ -225,6 +260,7 @@ public class RunRepository {
             try {
                 return new Run(
                     rs.getString("run_id"),
+                    rs.getString("tenant_id"),
                     rs.getString("framework"),
                     rs.getString("agent_id"),
                     rs.getString("model"),

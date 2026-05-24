@@ -15,6 +15,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -102,6 +103,7 @@ public class AlertService {
         return event;
     }
 
+    @Transactional
     public void resolveEvent(@NonNull String eventId) {
         Optional<AlertEvent> opt = alertEventRepository.findById(eventId);
         if (opt.isEmpty()) return;

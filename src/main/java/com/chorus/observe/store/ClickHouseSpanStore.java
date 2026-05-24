@@ -37,10 +37,6 @@ public class ClickHouseSpanStore implements SpanStore {
     private final DataSource dataSource;
     private final ObjectMapper mapper;
 
-    public ClickHouseSpanStore(@NonNull DataSource dataSource) {
-        this(dataSource, new ObjectMapper());
-    }
-
     public ClickHouseSpanStore(@NonNull DataSource dataSource, @NonNull ObjectMapper mapper) {
         this.dataSource = Objects.requireNonNull(dataSource);
         this.mapper = Objects.requireNonNull(mapper);

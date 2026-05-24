@@ -4,6 +4,7 @@ import com.chorus.observe.model.LlmCall;
 import com.chorus.observe.model.PagedResult;
 import com.chorus.observe.model.Span;
 import com.chorus.observe.model.ToolCall;
+import com.chorus.observe.security.TenantContext;
 import com.chorus.observe.service.SpanService;
 import org.jspecify.annotations.NonNull;
 import org.springframework.http.ResponseEntity;
@@ -34,7 +35,8 @@ public class SpanController {
             @PathVariable @NonNull String runId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(spanService.getSpansForRun(runId, page, size));
+        String tenantId = TenantContext.getTenantId();
+        return ResponseEntity.ok(spanService.getSpansForRun(runId, tenantId, page, size));
     }
 
     @GetMapping("/llm-calls")
@@ -42,7 +44,8 @@ public class SpanController {
             @PathVariable @NonNull String runId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(spanService.getLlmCallsForRun(runId, page, size));
+        String tenantId = TenantContext.getTenantId();
+        return ResponseEntity.ok(spanService.getLlmCallsForRun(runId, tenantId, page, size));
     }
 
     @GetMapping("/tool-calls")
@@ -50,6 +53,7 @@ public class SpanController {
             @PathVariable @NonNull String runId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(spanService.getToolCallsForRun(runId, page, size));
+        String tenantId = TenantContext.getTenantId();
+        return ResponseEntity.ok(spanService.getToolCallsForRun(runId, tenantId, page, size));
     }
 }

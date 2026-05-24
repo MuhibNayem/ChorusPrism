@@ -11,9 +11,16 @@ import java.util.*;
  * for high-dimensional embedding spaces. Points are neighbors if their cosine
  * similarity is >= {@code minSimilarity} (i.e., angular distance is small).
  * <p>
+ * <b>Performance optimization:</b> For datasets larger than {@value #VP_TREE_THRESHOLD},
+ * a {@link CosineVPTree} is built once and used for all range queries, reducing
+ * complexity from O(N²) to O(N log N) average. For smaller datasets, a linear scan
+ * is used to avoid tree-building overhead.
+ * <p>
  * Thread-safe and deterministic (given stable input order).
  */
 public final class EmbeddingClusterer {
+
+    private static final int VP_TREE_THRESHOLD = 1000;
 
     private final double minSimilarity;
     private final int minPoints;
@@ -41,6 +48,19 @@ public final class EmbeddingClusterer {
         }
 
         int n = points.size();
+
+        // Pre-normalize all vectors so cosine similarity = dot product
+        List<float[]> normalized = new ArrayList<>(n);
+        for (LabeledVector lv : points) {
+            normalized.add(normalize(lv.vector()));
+        }
+
+        // Build VP-Tree for large datasets to avoid O(N²) linear scans
+        CosineVPTree vpTree = null;
+        if (n > VP_TREE_THRESHOLD) {
+            vpTree = new CosineVPTree(normalized);
+        }
+
         boolean[] visited = new boolean[n];
         int[] clusterIds = new int[n];
         Arrays.fill(clusterIds, -1); // -1 = unassigned, -2 = noise
@@ -52,14 +72,14 @@ public final class EmbeddingClusterer {
             if (visited[i]) continue;
             visited[i] = true;
 
-            List<Integer> neighbors = regionQuery(points, i);
+            List<Integer> neighbors = regionQuery(points, normalized, vpTree, i);
             if (neighbors.size() < minPoints) {
                 clusterIds[i] = -2; // mark as noise temporarily
                 continue;
             }
 
             // Start a new cluster
-            expandCluster(points, i, neighbors, visited, clusterIds, nextClusterId);
+            expandCluster(points, normalized, vpTree, i, neighbors, visited, clusterIds, nextClusterId);
             nextClusterId++;
         }
 
@@ -86,6 +106,8 @@ public final class EmbeddingClusterer {
 
     private void expandCluster(
             @NonNull List<LabeledVector> points,
+            @NonNull List<float[]> normalized,
+            CosineVPTree vpTree,
             int coreIdx,
             @NonNull List<Integer> neighbors,
             boolean[] visited,
@@ -99,7 +121,7 @@ public final class EmbeddingClusterer {
             int j = seeds.poll();
             if (!visited[j]) {
                 visited[j] = true;
-                List<Integer> jNeighbors = regionQuery(points, j);
+                List<Integer> jNeighbors = regionQuery(points, normalized, vpTree, j);
                 if (jNeighbors.size() >= minPoints) {
                     seeds.addAll(jNeighbors);
                 }
@@ -110,21 +132,34 @@ public final class EmbeddingClusterer {
         }
     }
 
-    private @NonNull List<Integer> regionQuery(@NonNull List<LabeledVector> points, int idx) {
-        float[] v = points.get(idx).vector();
+    private @NonNull List<Integer> regionQuery(
+            @NonNull List<LabeledVector> points,
+            @NonNull List<float[]> normalized,
+            CosineVPTree vpTree,
+            int idx
+    ) {
+        if (vpTree != null) {
+            return vpTree.rangeQuery(normalized.get(idx), minSimilarity);
+        }
+
+        // Fallback linear scan for small datasets
+        float[] v = normalized.get(idx);
         List<Integer> neighbors = new ArrayList<>();
         for (int i = 0; i < points.size(); i++) {
             if (i == idx) {
                 neighbors.add(i);
                 continue;
             }
-            if (cosineSimilarity(v, points.get(i).vector()) >= minSimilarity) {
+            if (cosineSimilarity(v, normalized.get(i)) >= minSimilarity) {
                 neighbors.add(i);
             }
         }
         return neighbors;
     }
 
+    /**
+     * Compute cosine similarity between two (possibly non-normalized) vectors.
+     */
     private double cosineSimilarity(float[] a, float[] b) {
         if (a.length != b.length) {
             throw new IllegalArgumentException("Vectors must have same dimensions: " + a.length + " vs " + b.length);
@@ -139,6 +174,25 @@ public final class EmbeddingClusterer {
         }
         if (normA == 0.0 || normB == 0.0) return 0.0;
         return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+
+    /**
+     * Return a new unit-length vector in the same direction.
+     */
+    private float[] normalize(float[] v) {
+        double norm = 0.0;
+        for (float f : v) {
+            norm += f * f;
+        }
+        norm = Math.sqrt(norm);
+        if (norm == 0.0) {
+            return v.clone();
+        }
+        float[] result = new float[v.length];
+        for (int i = 0; i < v.length; i++) {
+            result[i] = (float) (v[i] / norm);
+        }
+        return result;
     }
 
     /**

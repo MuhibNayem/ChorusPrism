@@ -15,6 +15,8 @@ import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Semaphore;
 import java.util.stream.Collectors;
 
 /**
@@ -64,6 +66,8 @@ public class TraceClusteringEngine {
      * @param agentConfig config for the embedding endpoint
      * @return number of embeddings generated
      */
+    private static final int EMBEDDING_PARALLELISM = 8;
+
     public int generateEmbeddings(
             @NonNull Instant periodStart,
             @NonNull Instant periodEnd,
@@ -71,9 +75,11 @@ public class TraceClusteringEngine {
             @NonNull Map<String, Object> agentConfig
     ) {
         List<Run> runs = runRepository.findAll(new RunRepository.RunQuery(
-            null, null, null, null, periodStart, periodEnd, null, null, null, "start_time", "DESC", 10000, 0));
+            null, null, null, null, null, periodStart, periodEnd, null, null, null, "start_time", "DESC", 10000, 0));
 
-        int count = 0;
+        // Collect all (run, text) pairs first to enable parallel embedding generation
+        record EmbedTask(@NonNull Run run, @NonNull String text) {}
+        List<EmbedTask> tasks = new ArrayList<>();
         for (Run run : runs) {
             List<LlmCall> calls = llmCallRepository.findByRunId(run.runId());
             if (calls.isEmpty()) continue;
@@ -82,19 +88,46 @@ public class TraceClusteringEngine {
                 .map(c -> Objects.toString(c.prompt(), "") + " " + Objects.toString(c.completion(), ""))
                 .collect(Collectors.joining(" "));
 
-            if (text.isBlank()) continue;
+            if (!text.isBlank()) {
+                tasks.add(new EmbedTask(run, text.trim()));
+            }
+        }
 
+        // Parallel embedding invocation with bounded concurrency
+        Semaphore semaphore = new Semaphore(EMBEDDING_PARALLELISM);
+        List<CompletableFuture<TraceEmbedding>> futures = new ArrayList<>();
+
+        for (EmbedTask task : tasks) {
+            CompletableFuture<TraceEmbedding> future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    semaphore.acquire();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Embedding generation interrupted", e);
+                }
+                try {
+                    float[] vector = fetchEmbedding(task.text(), model, agentConfig);
+                    String embeddingId = "emb-" + task.run().runId();
+                    return new TraceEmbedding(
+                        embeddingId, task.run().runId(), null, model, vector, task.text(), Map.of(), Instant.now());
+                } finally {
+                    semaphore.release();
+                }
+            });
+            futures.add(future);
+        }
+
+        int count = 0;
+        for (CompletableFuture<TraceEmbedding> future : futures) {
             try {
-                float[] vector = fetchEmbedding(text, model, agentConfig);
-                String embeddingId = "emb-" + run.runId();
-                TraceEmbedding embedding = new TraceEmbedding(
-                    embeddingId, run.runId(), null, model, vector, text.trim(), Map.of(), Instant.now());
+                TraceEmbedding embedding = future.join();
                 embeddingRepository.save(embedding);
                 count++;
             } catch (Exception e) {
-                LOG.warn("Failed to embed run {}", run.runId(), e);
+                LOG.warn("Failed to embed run", e);
             }
         }
+
         LOG.info("Generated {} embeddings for period {} to {}", count, periodStart, periodEnd);
         return count;
     }

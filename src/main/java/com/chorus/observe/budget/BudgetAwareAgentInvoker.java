@@ -57,8 +57,9 @@ public final class BudgetAwareAgentInvoker implements AgentInvoker {
 
     @Override
     public @NonNull String invoke(@NonNull String agentConfigJson, @NonNull String input) {
-        String agentId = extractAgentId(agentConfigJson);
-        String model = extractModel(agentConfigJson);
+        AgentConfigSnapshot config = parseConfig(agentConfigJson);
+        String agentId = config.agentId();
+        String model = config.model();
 
         Optional<BudgetEnforcement> budgetOpt = findActiveBudgetCached(agentId);
         if (budgetOpt.isPresent()) {
@@ -94,32 +95,28 @@ public final class BudgetAwareAgentInvoker implements AgentInvoker {
             return entry.budget();
         }
         Optional<BudgetEnforcement> budget = budgetService.listBudgetsByAgent(agentId).stream()
-            .filter(b -> b.status() == BudgetEnforcement.Status.ACTIVE || b.status() == BudgetEnforcement.Status.WARNING)
+            .filter(b -> b.status() == BudgetEnforcement.Status.ACTIVE
+                || b.status() == BudgetEnforcement.Status.WARNING
+                || b.status() == BudgetEnforcement.Status.EXCEEDED)
             .findFirst();
         budgetCache.put(agentId, new CacheEntry(budget, System.currentTimeMillis()));
         return budget;
     }
 
-    private @NonNull String extractAgentId(@NonNull String agentConfigJson) {
+    private record AgentConfigSnapshot(@NonNull String agentId, @Nullable String model) {}
+
+    private @NonNull AgentConfigSnapshot parseConfig(@NonNull String agentConfigJson) {
         try {
             Map<String, Object> config = mapper.readValue(agentConfigJson, new com.fasterxml.jackson.core.type.TypeReference<>() {});
             Object agentId = config.get("agentId");
-            if (agentId != null) return agentId.toString();
-            Object name = config.get("name");
-            if (name != null) return name.toString();
-        } catch (Exception e) {
-            // fall through
-        }
-        return "unknown";
-    }
-
-    private @Nullable String extractModel(@NonNull String agentConfigJson) {
-        try {
-            Map<String, Object> config = mapper.readValue(agentConfigJson, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            if (agentId == null) {
+                Object name = config.get("name");
+                agentId = name != null ? name : "unknown";
+            }
             Object model = config.get("model");
-            return model != null ? model.toString() : null;
+            return new AgentConfigSnapshot(agentId.toString(), model != null ? model.toString() : null);
         } catch (Exception e) {
-            return null;
+            return new AgentConfigSnapshot("unknown", null);
         }
     }
 

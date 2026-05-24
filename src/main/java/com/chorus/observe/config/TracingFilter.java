@@ -63,11 +63,32 @@ public class TracingFilter implements Filter {
         }
     }
 
+    private static final int MAX_TRACE_ID_LENGTH = 64;
+
     private @NonNull String extractOrGenerateTraceId(@NonNull HttpServletRequest req) {
         String header = req.getHeader("X-Trace-Id");
         if (header != null && !header.isBlank()) {
-            return header;
+            return sanitizeTraceId(header);
         }
         return UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+    }
+
+    /**
+     * Sanitize a trace ID to prevent log injection and MDC pollution.
+     * Strips control characters, newlines, and limits length.
+     */
+    private @NonNull String sanitizeTraceId(@NonNull String traceId) {
+        StringBuilder sb = new StringBuilder(Math.min(traceId.length(), MAX_TRACE_ID_LENGTH));
+        for (int i = 0; i < traceId.length() && sb.length() < MAX_TRACE_ID_LENGTH; i++) {
+            char c = traceId.charAt(i);
+            // Allow printable ASCII alphanumeric, hyphen, underscore, dot
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                || c == '-' || c == '_' || c == '.') {
+                sb.append(c);
+            }
+            // All other characters (newlines, control chars, unicode) are dropped
+        }
+        String sanitized = sb.toString();
+        return sanitized.isBlank() ? UUID.randomUUID().toString().replace("-", "").substring(0, 16) : sanitized;
     }
 }

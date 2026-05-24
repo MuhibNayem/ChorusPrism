@@ -3,6 +3,7 @@ package com.chorus.observe.api;
 import com.chorus.observe.model.Run;
 import com.chorus.observe.model.Span;
 import com.chorus.observe.persistence.RunRepository.RunQuery;
+import com.chorus.observe.security.TenantContext;
 import com.chorus.observe.service.RunService;
 import com.chorus.observe.service.SpanStreamService;
 import org.jspecify.annotations.NonNull;
@@ -47,7 +48,8 @@ public class RunController {
             @RequestParam(defaultValue = "0") int page) {
 
         int offset = page * size;
-        RunQuery query = new RunQuery(framework, agentId, model, status, from, to, null, null, search, sortBy, sortOrder, size, offset);
+        String tenantId = TenantContext.getTenantId();
+        RunQuery query = new RunQuery(tenantId, framework, agentId, model, status, from, to, null, null, search, sortBy, sortOrder, size, offset);
         List<Run> runs = runService.listRuns(query);
         long total = runService.countRuns(query);
 
@@ -64,22 +66,31 @@ public class RunController {
 
     @GetMapping("/{runId}")
     public ResponseEntity<Run> getRun(@PathVariable @NonNull String runId) {
-        return runService.getRun(runId)
+        String tenantId = TenantContext.getTenantId();
+        return runService.getRunForTenant(runId, tenantId)
             .map(ResponseEntity::ok)
             .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping(value = "/{runId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter streamRun(@PathVariable @NonNull String runId) {
+    public ResponseEntity<SseEmitter> streamRun(@PathVariable @NonNull String runId) {
+        String tenantId = TenantContext.getTenantId();
+        if (!runService.runExistsForTenant(runId, tenantId)) {
+            return ResponseEntity.notFound().build();
+        }
         SseEmitter emitter = new SseEmitter(300_000L); // 5 minute timeout
         spanStreamService.subscribe(runId, emitter);
         emitter.onCompletion(() -> spanStreamService.unsubscribe(runId, emitter));
         emitter.onTimeout(() -> spanStreamService.unsubscribe(runId, emitter));
-        return emitter;
+        return ResponseEntity.ok(emitter);
     }
 
     @GetMapping("/{runId}/eval-summary")
     public ResponseEntity<RunService.RunEvalSummary> getRunEvalSummary(@PathVariable @NonNull String runId) {
+        String tenantId = TenantContext.getTenantId();
+        if (!runService.runExistsForTenant(runId, tenantId)) {
+            return ResponseEntity.notFound().build();
+        }
         RunService.RunEvalSummary summary = runService.getEvalSummaryForRun(runId);
         if (summary == null) {
             return ResponseEntity.notFound().build();

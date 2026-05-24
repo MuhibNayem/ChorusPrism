@@ -10,6 +10,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -78,6 +79,7 @@ public class MultiTurnTestService {
         return run;
     }
 
+    @Transactional
     public void startRun(@NonNull String runId) {
         Optional<MultiTurnRun> opt = runRepository.findById(runId);
         if (opt.isEmpty()) return;

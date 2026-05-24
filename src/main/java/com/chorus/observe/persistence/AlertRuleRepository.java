@@ -1,6 +1,7 @@
 package com.chorus.observe.persistence;
 
 import com.chorus.observe.model.AlertRule;
+import com.chorus.observe.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,10 +36,12 @@ public class AlertRuleRepository {
     }
 
     public void save(@NonNull AlertRule rule) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
-            INSERT INTO alert_rules (rule_id, name, condition_expr, threshold, severity, webhook_url, email, enabled, cooldown_seconds, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)
+            INSERT INTO alert_rules (rule_id, tenant_id, name, condition_expr, threshold, severity, webhook_url, email, enabled, cooldown_seconds, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)
             ON CONFLICT (rule_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 name = EXCLUDED.name,
                 condition_expr = EXCLUDED.condition_expr,
                 threshold = EXCLUDED.threshold,
@@ -51,7 +54,7 @@ public class AlertRuleRepository {
                 updated_at = EXCLUDED.updated_at
             """;
         jdbc.update(sql,
-            rule.ruleId(), rule.name(), rule.conditionExpr(), rule.threshold(),
+            rule.ruleId(), tenantId != null ? tenantId : "default", rule.name(), rule.conditionExpr(), rule.threshold(),
             rule.severity().name(), rule.webhookUrl(), rule.email(),
             rule.enabled(), rule.cooldownSeconds(), toJson(rule.metadata()),
             Timestamp.from(rule.createdAt()), Timestamp.from(rule.updatedAt())
@@ -59,7 +62,12 @@ public class AlertRuleRepository {
     }
 
     public @NonNull Optional<AlertRule> findById(@NonNull String ruleId) {
+        String tenantId = TenantContext.getTenantIdOrNull();
         try {
+            if (tenantId != null) {
+                return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM alert_rules WHERE rule_id = ? AND tenant_id = ?", rowMapper, ruleId, tenantId));
+            }
             return Optional.ofNullable(jdbc.queryForObject(
                 "SELECT * FROM alert_rules WHERE rule_id = ?", rowMapper, ruleId));
         } catch (EmptyResultDataAccessException e) {
@@ -68,33 +76,64 @@ public class AlertRuleRepository {
     }
 
     public @NonNull List<AlertRule> findAll() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM alert_rules WHERE tenant_id = ? ORDER BY created_at DESC", rowMapper, tenantId);
+        }
         return jdbc.query("SELECT * FROM alert_rules ORDER BY created_at DESC", rowMapper);
     }
 
     public @NonNull List<AlertRule> findAll(int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM alert_rules WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM alert_rules ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, limit, offset);
     }
 
     public long count() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM alert_rules WHERE tenant_id = ?", Long.class, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM alert_rules", Long.class);
         return count != null ? count : 0L;
     }
 
     public @NonNull List<AlertRule> findEnabled() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM alert_rules WHERE enabled = TRUE AND tenant_id = ? ORDER BY created_at DESC", rowMapper, tenantId);
+        }
         return jdbc.query("SELECT * FROM alert_rules WHERE enabled = TRUE ORDER BY created_at DESC", rowMapper);
     }
 
     public @NonNull List<AlertRule> findEnabled(int limit, int offset) {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query("SELECT * FROM alert_rules WHERE enabled = TRUE AND tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
+        }
         return jdbc.query("SELECT * FROM alert_rules WHERE enabled = TRUE ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, limit, offset);
     }
 
     public long countEnabled() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            Long count = jdbc.queryForObject("SELECT COUNT(*) FROM alert_rules WHERE enabled = TRUE AND tenant_id = ?", Long.class, tenantId);
+            return count != null ? count : 0L;
+        }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM alert_rules WHERE enabled = TRUE", Long.class);
         return count != null ? count : 0L;
     }
 
     public void deleteById(@NonNull String ruleId) {
-        jdbc.update("DELETE FROM alert_rules WHERE rule_id = ?", ruleId);
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            jdbc.update("DELETE FROM alert_rules WHERE rule_id = ? AND tenant_id = ?", ruleId, tenantId);
+        } else {
+            jdbc.update("DELETE FROM alert_rules WHERE rule_id = ?", ruleId);
+        }
     }
 
     private @NonNull String toJson(@NonNull Object value) {

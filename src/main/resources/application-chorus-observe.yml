@@ -34,8 +34,8 @@ chorus:
     security:
       api-key-enabled: false
     rate-limit:
-      enabled: false
-      max-requests-per-minute: 100
+      enabled: true
+      max-requests-per-minute: 60
 
 # Spring Boot server limits (defense against oversized payloads)
 server:

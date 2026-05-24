@@ -7,6 +7,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -55,12 +58,20 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             if (claims != null) {
                 TenantContext.set(claims.tenantId(), claims.userId(), null);
                 request.setAttribute("scopes", claims.scopes());
+
+                var authorities = claims.scopes().stream()
+                    .map(SimpleGrantedAuthority::new)
+                    .toList();
+                var authToken = new UsernamePasswordAuthenticationToken(
+                    claims.userId(), null, authorities);
+                SecurityContextHolder.getContext().setAuthentication(authToken);
             }
         }
 
         try {
             filterChain.doFilter(request, response);
         } finally {
+            SecurityContextHolder.clearContext();
             TenantContext.clear();
         }
     }
