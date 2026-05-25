@@ -51,6 +51,7 @@ dependencies {
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.0")
 
     // Security (versions managed by Spring Boot BOM)
+    implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.security:spring-security-crypto")
     implementation("org.springframework.security:spring-security-config")
     implementation("org.springframework.security:spring-security-web")

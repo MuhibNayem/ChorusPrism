@@ -26,6 +26,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - chorus-network
 
   clickhouse:
     image: clickhouse/clickhouse-server:latest
@@ -45,6 +47,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - chorus-network
 
   chorus-observe:
     build:
@@ -55,6 +59,7 @@ services:
       - "4317:4317"
       - "4318:4318"
     environment:
+      SPRING_PROFILES_ACTIVE: chorus-observe
       CHORUS_OBSERVE_DATABASE_URL: jdbc:postgresql://postgres:5432/chorus_observe
       CHORUS_OBSERVE_DATABASE_USERNAME: chorus
       CHORUS_OBSERVE_DATABASE_PASSWORD: chorus

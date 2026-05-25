@@ -115,7 +115,7 @@ public class AgentRepository {
         String tenantId = TenantContext.getTenantIdOrNull();
         String sql = """
             INSERT INTO agents (agent_id, tenant_id, name, framework, status, tags, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'healthy', '[]'::jsonb, NOW(), NOW())
+            VALUES (?, ?, ?, ?, 'healthy', '["auto-provisioned"]'::jsonb, NOW(), NOW())
             ON CONFLICT (agent_id) DO UPDATE SET
                 tenant_id = EXCLUDED.tenant_id,
                 framework = EXCLUDED.framework,

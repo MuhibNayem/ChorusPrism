@@ -34,28 +34,14 @@ public final class PricingTable {
     }
 
     private void loadDefaults() {
-        // OpenAI
-        exactPrices.put("gpt-4o", new ModelPricing(new BigDecimal("0.00500"), new BigDecimal("0.01500")));
+        // Minimal bootstrap — overridden by DynamicPricingService on startup
+        exactPrices.put("gpt-4o",      new ModelPricing(new BigDecimal("0.00250"), new BigDecimal("0.01000")));
         exactPrices.put("gpt-4o-mini", new ModelPricing(new BigDecimal("0.00015"), new BigDecimal("0.00060")));
-        exactPrices.put("gpt-4-turbo", new ModelPricing(new BigDecimal("0.01000"), new BigDecimal("0.03000")));
-        exactPrices.put("gpt-4", new ModelPricing(new BigDecimal("0.03000"), new BigDecimal("0.06000")));
-        exactPrices.put("gpt-3.5-turbo", new ModelPricing(new BigDecimal("0.00050"), new BigDecimal("0.00150")));
-
-        // Anthropic
-        exactPrices.put("claude-3-5-sonnet", new ModelPricing(new BigDecimal("0.00300"), new BigDecimal("0.01500")));
         exactPrices.put("claude-3-5-sonnet-20241022", new ModelPricing(new BigDecimal("0.00300"), new BigDecimal("0.01500")));
-        exactPrices.put("claude-3-sonnet", new ModelPricing(new BigDecimal("0.00300"), new BigDecimal("0.01500")));
-        exactPrices.put("claude-3-haiku", new ModelPricing(new BigDecimal("0.00025"), new BigDecimal("0.00125")));
-        exactPrices.put("claude-3-opus", new ModelPricing(new BigDecimal("0.01500"), new BigDecimal("0.07500")));
-
-        // Prefix fallbacks
-        prefixPrices.put("gpt-4o", exactPrices.get("gpt-4o"));
-        prefixPrices.put("gpt-4", exactPrices.get("gpt-4"));
-        prefixPrices.put("gpt-3.5", exactPrices.get("gpt-3.5-turbo"));
-        prefixPrices.put("claude-3-5-sonnet", exactPrices.get("claude-3-5-sonnet"));
-        prefixPrices.put("claude-3-sonnet", exactPrices.get("claude-3-sonnet"));
-        prefixPrices.put("claude-3-haiku", exactPrices.get("claude-3-haiku"));
-        prefixPrices.put("claude-3-opus", exactPrices.get("claude-3-opus"));
+        exactPrices.put("claude-3-haiku-20240307",    new ModelPricing(new BigDecimal("0.00025"), new BigDecimal("0.00125")));
+        exactPrices.put("gemini-1.5-pro", new ModelPricing(new BigDecimal("0.00125"), new BigDecimal("0.00500")));
+        prefixPrices.put("gpt-4o-mini", exactPrices.get("gpt-4o-mini"));
+        prefixPrices.put("gpt-4o",      exactPrices.get("gpt-4o"));
     }
 
     public @NonNull PricingTable withPrice(@NonNull String model, @NonNull ModelPricing pricing) {

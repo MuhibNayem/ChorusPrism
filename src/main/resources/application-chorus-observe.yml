@@ -30,7 +30,8 @@ chorus:
       port: 4317
     jwt:
       secret: "${JWT_SECRET:}"
-      expiry-minutes: 60
+      expiry-minutes: 15
+      refresh-expiry-days: 7
     security:
       api-key-enabled: false
     rate-limit:
@@ -63,8 +64,8 @@ management:
       base-path: /actuator
   endpoint:
     health:
-      show-details: always
-      show-components: always
+      show-details: when-authorized
+      show-components: when-authorized
     prometheus:
       enabled: true
     metrics:
@@ -84,8 +85,3 @@ logging:
   level:
     com.chorus.observe: INFO
     org.springframework.web: WARN
-
-spring:
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false

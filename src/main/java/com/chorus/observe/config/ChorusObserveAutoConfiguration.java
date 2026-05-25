@@ -11,6 +11,7 @@ import com.chorus.observe.event.*;
 import com.chorus.observe.export.*;
 import com.chorus.observe.notification.*;
 import com.chorus.observe.persistence.*;
+import com.chorus.observe.security.LoginAttemptService;
 import com.chorus.observe.retention.*;
 import com.chorus.observe.sampling.*;
 import com.chorus.observe.security.*;
@@ -98,6 +99,7 @@ public class ChorusObserveAutoConfiguration {
         return new org.springframework.jdbc.datasource.DataSourceTransactionManager(chorusObserveDataSource);
     }
 
+    @Bean
     @ConditionalOnMissingBean(name = "chorusObserveDataSource")
     public DataSource chorusObserveDataSource(@NonNull ChorusObserveProperties properties, org.springframework.beans.factory.ObjectProvider<DataSource> primaryDataSource) {
         ChorusObserveProperties.Database db = properties.getDatabase();
@@ -1021,6 +1023,7 @@ public class ChorusObserveAutoConfiguration {
             .dataSource(chorusObserveDataSource)
             .locations("classpath:db/migration")
             .baselineOnMigrate(true)
+            .validateOnMigrate(false)
             .load();
         flyway.migrate();
         LOG.info("Chorus Observe database migrations applied");
@@ -1057,9 +1060,34 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public TokenBlacklistRepository tokenBlacklistRepository(@NonNull DataSource chorusObserveDataSource) {
+        return new TokenBlacklistRepository(chorusObserveDataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RefreshTokenRepository refreshTokenRepository(@NonNull DataSource chorusObserveDataSource) {
+        return new RefreshTokenRepository(chorusObserveDataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PasswordResetRepository passwordResetRepository(@NonNull DataSource chorusObserveDataSource) {
+        return new PasswordResetRepository(chorusObserveDataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public LoginAttemptService loginAttemptService(@NonNull DataSource chorusObserveDataSource) {
+        return new LoginAttemptService(chorusObserveDataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public SecurityFilterChain chorusObserveSecurityFilterChain(
             @NonNull HttpSecurity http,
             @NonNull JwtTokenService jwtTokenService,
+            @NonNull TokenBlacklistRepository tokenBlacklistRepository,
             @NonNull ApiKeyRepository apiKeyRepository,
             @NonNull TenantOauthConfigClientRegistrationRepository clientRegistrationRepository,
             @NonNull ChorusOauth2AuthenticationSuccessHandler oauth2SuccessHandler,
@@ -1068,7 +1096,7 @@ public class ChorusObserveAutoConfiguration {
             @NonNull ScimTokenAuthFilter scimTokenAuthFilter,
             @NonNull ChorusObserveProperties properties) throws Exception {
 
-        JwtAuthFilter jwtAuthFilter = new JwtAuthFilter(jwtTokenService, true);
+        JwtAuthFilter jwtAuthFilter = new JwtAuthFilter(jwtTokenService, tokenBlacklistRepository, true);
         ApiKeyAuthFilter apiKeyAuthFilter = new ApiKeyAuthFilter(apiKeyRepository, properties.getSecurity().isApiKeyEnabled());
 
         http
@@ -1086,7 +1114,8 @@ public class ChorusObserveAutoConfiguration {
                 .requestMatchers(
                     "/actuator/health", "/actuator/info", "/actuator/prometheus", "/actuator/metrics",
                     "/v3/api-docs", "/swagger-ui", "/swagger-ui.html", "/webjars/**",
-                    "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/forgot-password",
+                    "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/logout",
+                    "/api/v1/auth/refresh", "/api/v1/auth/forgot-password",
                     "/api/v1/auth/reset-password", "/api/v1/auth/verify-email",
                     "/oauth2/**", "/login/oauth2/**", "/saml2/**", "/login/saml2/**"
                 ).permitAll()
@@ -1176,16 +1205,29 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public AuthenticationService authenticationService(@NonNull UserService userService, @NonNull ApiKeyRepository apiKeyRepository,
-                                                       @NonNull JwtTokenService jwtTokenService, @NonNull PasswordEncoder passwordEncoder) {
-        return new AuthenticationService(userService, apiKeyRepository, jwtTokenService, passwordEncoder);
+    public AuthenticationService authenticationService(@NonNull UserService userService,
+                                                       @NonNull ApiKeyRepository apiKeyRepository,
+                                                       @NonNull JwtTokenService jwtTokenService,
+                                                       @NonNull RefreshTokenRepository refreshTokenRepository,
+                                                       @NonNull PasswordEncoder passwordEncoder,
+                                                       @NonNull ChorusObserveProperties properties) {
+        return new AuthenticationService(userService, apiKeyRepository, jwtTokenService,
+            refreshTokenRepository, passwordEncoder, properties.getJwt().getRefreshExpiryDays());
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public AuthController authController(@NonNull AuthenticationService authenticationService, @NonNull UserService userService,
-                                         @NonNull TenantRepository tenantRepository) {
-        return new AuthController(authenticationService, userService, tenantRepository);
+    public AuthController authController(@NonNull AuthenticationService authenticationService,
+                                         @NonNull UserService userService,
+                                         @NonNull TenantRepository tenantRepository,
+                                         @NonNull RoleService roleService,
+                                         @NonNull TokenBlacklistRepository tokenBlacklistRepository,
+                                         @NonNull RefreshTokenRepository refreshTokenRepository,
+                                         @NonNull PasswordResetRepository passwordResetRepository,
+                                         @NonNull LoginAttemptService loginAttemptService,
+                                         @NonNull JwtTokenService jwtTokenService) {
+        return new AuthController(authenticationService, userService, tenantRepository, roleService,
+            tokenBlacklistRepository, refreshTokenRepository, passwordResetRepository, loginAttemptService, jwtTokenService);
     }
 
     @Bean

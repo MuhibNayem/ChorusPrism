@@ -38,7 +38,7 @@ public class DashboardService {
                    COALESCE(SUM(total_cost), 0) as total_cost,
                    COALESCE(AVG(latency_ms), 0) as avg_latency,
                    COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms), 0) as p95_latency,
-                   SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END) as error_count
+                   COALESCE(SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END), 0) as error_count
             FROM runs
             WHERE start_time >= ? AND start_time < ?
             """,
@@ -178,7 +178,7 @@ public class DashboardService {
                 rs.getLong("runs"),
                 rs.getLong("tokens"),
                 rs.getBigDecimal("cost").doubleValue(),
-                ((Number) rs.getObject("p95")).longValue(),
+                rs.getObject("p95") != null ? ((Number) rs.getObject("p95")).longValue() : 0L,
                 rs.getLong("errors")
             ),
             Timestamp.from(windowStart), Timestamp.from(now)
@@ -277,9 +277,43 @@ public class DashboardService {
     }
 
     static @NonNull String inferProvider(@NonNull String model) {
-        if (model.startsWith("gpt-")) return "openai";
-        if (model.startsWith("claude-")) return "anthropic";
-        if (model.startsWith("gemini-")) return "google";
+        String m = model.toLowerCase();
+        // Strip provider prefix (e.g. "anthropic/claude-opus-4-7" → "claude-opus-4-7")
+        int slash = m.indexOf('/');
+        if (slash >= 0) {
+            String prefix = m.substring(0, slash);
+            m = m.substring(slash + 1);
+            // trust explicit provider prefix if recognisable
+            return switch (prefix) {
+                case "anthropic"    -> "anthropic";
+                case "openai"       -> "openai";
+                case "google", "google-cloud", "vertex_ai" -> "google";
+                case "meta", "groq", "together", "fireworks" -> inferProviderFromName(m);
+                case "mistral"      -> "mistral";
+                case "deepseek"     -> "deepseek";
+                case "cohere"       -> "cohere";
+                case "aws", "bedrock" -> inferProviderFromName(m);
+                default             -> inferProviderFromName(m);
+            };
+        }
+        return inferProviderFromName(m);
+    }
+
+    private static @NonNull String inferProviderFromName(@NonNull String m) {
+        if (m.startsWith("claude-"))        return "anthropic";
+        if (m.startsWith("gpt-"))           return "openai";
+        if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return "openai";
+        if (m.startsWith("text-embedding-") || m.startsWith("dall-e-")) return "openai";
+        if (m.startsWith("gemini-"))        return "google";
+        if (m.startsWith("palm-") || m.startsWith("bison-")) return "google";
+        if (m.startsWith("deepseek-"))      return "deepseek";
+        if (m.startsWith("llama-") || m.startsWith("meta-")) return "meta";
+        if (m.startsWith("mistral-") || m.startsWith("mixtral-") || m.startsWith("codestral")) return "mistral";
+        if (m.startsWith("command-"))       return "cohere";
+        if (m.startsWith("titan-") || m.startsWith("nova-")) return "aws";
+        if (m.startsWith("qwen-") || m.startsWith("qwq-")) return "alibaba";
+        if (m.startsWith("yi-"))            return "01.ai";
+        if (m.startsWith("phi-"))           return "microsoft";
         return "unknown";
     }
 

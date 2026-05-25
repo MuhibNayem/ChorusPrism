@@ -189,12 +189,15 @@ public class ChorusObserveProperties {
 
     public static class Jwt {
         private String secret = "";
-        private long expiryMinutes = 60;
+        private long expiryMinutes = 15; // short-lived; refresh token extends session
+        private long refreshExpiryDays = 7;
 
         public String getSecret() { return secret; }
         public void setSecret(String secret) { this.secret = secret; }
         public long getExpiryMinutes() { return expiryMinutes; }
         public void setExpiryMinutes(long expiryMinutes) { this.expiryMinutes = expiryMinutes; }
+        public long getRefreshExpiryDays() { return refreshExpiryDays; }
+        public void setRefreshExpiryDays(long refreshExpiryDays) { this.refreshExpiryDays = refreshExpiryDays; }
     }
 
     public static class Sampling {

@@ -82,10 +82,9 @@ public final class PagerDutyDispatcher implements NotificationDispatcher {
 
     private String mapSeverity(AlertRule.Severity severity) {
         return switch (severity) {
-            case CRITICAL -> "critical";
-            case HIGH -> "error";
-            case MEDIUM -> "warning";
-            case LOW -> "info";
+            case error -> "critical";
+            case warning -> "warning";
+            case info -> "info";
         };
     }
 }

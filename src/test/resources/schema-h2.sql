@@ -591,3 +591,54 @@ CREATE TABLE IF NOT EXISTS ingestion_queue (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ingestion_queue_created ON ingestion_queue(created_at);
+
+-- V14: Auth security hardening tables (H2 compatible)
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id              VARCHAR(36) PRIMARY KEY DEFAULT RANDOM_UUID(),
+    token_hash      VARCHAR(64) NOT NULL UNIQUE,
+    user_id         VARCHAR(64) NOT NULL,
+    tenant_id       VARCHAR(64) NOT NULL,
+    jti             VARCHAR(64) NOT NULL UNIQUE,
+    expires_at      TIMESTAMP NOT NULL,
+    revoked_at      TIMESTAMP,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS revoked_tokens (
+    jti         VARCHAR(64) PRIMARY KEY,
+    tenant_id   VARCHAR(64) NOT NULL,
+    expires_at  TIMESTAMP NOT NULL,
+    revoked_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+    identifier      VARCHAR(320) NOT NULL,
+    tenant_id       VARCHAR(64) NOT NULL DEFAULT '',
+    attempt_count   INT NOT NULL DEFAULT 1,
+    window_start    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    locked_until    TIMESTAMP,
+    last_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_login_attempts UNIQUE (identifier, tenant_id)
+);
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id          VARCHAR(36) PRIMARY KEY DEFAULT RANDOM_UUID(),
+    user_id     VARCHAR(64) NOT NULL,
+    tenant_id   VARCHAR(64) NOT NULL,
+    token_hash  VARCHAR(64) NOT NULL UNIQUE,
+    expires_at  TIMESTAMP NOT NULL,
+    used_at     TIMESTAMP,
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+    id          VARCHAR(36) PRIMARY KEY DEFAULT RANDOM_UUID(),
+    user_id     VARCHAR(64) NOT NULL,
+    tenant_id   VARCHAR(64) NOT NULL,
+    token_hash  VARCHAR(64) NOT NULL UNIQUE,
+    expires_at  TIMESTAMP NOT NULL,
+    verified_at TIMESTAMP,
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

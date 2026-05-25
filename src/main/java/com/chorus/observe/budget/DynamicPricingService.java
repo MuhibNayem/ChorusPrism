@@ -103,26 +103,42 @@ public class DynamicPricingService {
 
             Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
             while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> field = fields.next();
-                String modelName = field.getKey().toLowerCase().trim();
-                JsonNode modelInfo = field.getValue();
+                Map.Entry<String, JsonNode> entry = fields.next();
+                String rawKey = entry.getKey();
+                JsonNode info = entry.getValue();
 
-                if (modelInfo.has("input_cost_per_token") && modelInfo.has("output_cost_per_token")) {
-                    double inputCost = modelInfo.get("input_cost_per_token").asDouble();
-                    double outputCost = modelInfo.get("output_cost_per_token").asDouble();
+                // Skip entries without pricing
+                if (!info.has("input_cost_per_token") || !info.has("output_cost_per_token")) continue;
+                if (info.get("input_cost_per_token").isNull() || info.get("output_cost_per_token").isNull()) continue;
 
-                    // Convert cost per token to cost per 1k tokens
-                    BigDecimal inputPer1k = BigDecimal.valueOf(inputCost).multiply(BigDecimal.valueOf(1000));
-                    BigDecimal outputPer1k = BigDecimal.valueOf(outputCost).multiply(BigDecimal.valueOf(1000));
+                double inputCost = info.get("input_cost_per_token").asDouble();
+                double outputCost = info.get("output_cost_per_token").asDouble();
+                if (inputCost == 0 && outputCost == 0) continue;
 
-                    PricingTable.ModelPricing pricing = new PricingTable.ModelPricing(inputPer1k, outputPer1k);
-                    exact.put(modelName, pricing);
+                // Skip region-prefixed Bedrock variants (dots in key: "us.anthropic.claude-...")
+                if (rawKey.contains(".")) continue;
 
-                    // Add dynamic prefix mapping for generic name segments (e.g. gpt-4o, claude-3-5-sonnet)
-                    if (modelName.contains("-") && !modelName.contains("preview")) {
-                        String prefixName = modelName.substring(0, modelName.lastIndexOf('-'));
-                        prefix.putIfAbsent(prefixName, pricing);
-                    }
+                // Canonical model name: strip provider prefix before "/" (e.g. "gemini/gemini-2.5-pro" → "gemini-2.5-pro")
+                String modelName = rawKey.contains("/")
+                    ? rawKey.substring(rawKey.lastIndexOf('/') + 1).toLowerCase().trim()
+                    : rawKey.toLowerCase().trim();
+
+                // Skip keys that became empty or are metadata placeholders
+                if (modelName.isBlank() || modelName.equals("sample_spec")) continue;
+
+                BigDecimal inputPer1k  = BigDecimal.valueOf(inputCost  * 1000);
+                BigDecimal outputPer1k = BigDecimal.valueOf(outputCost * 1000);
+                PricingTable.ModelPricing pricing = new PricingTable.ModelPricing(inputPer1k, outputPer1k);
+
+                // Exact match: the model name as users send it (e.g. "claude-opus-4-7", "o3", "gpt-4o")
+                exact.putIfAbsent(modelName, pricing);
+
+                // Prefix: strip trailing date (-20XXXXXX) and version (-v1:0, @tag) suffixes
+                String stripped = modelName
+                    .replaceAll("-20\\d{6}$", "")
+                    .replaceAll("(-v\\d+:\\d+|@.+)$", "");
+                if (!stripped.equals(modelName) && !stripped.isBlank()) {
+                    prefix.putIfAbsent(stripped, pricing);
                 }
             }
 

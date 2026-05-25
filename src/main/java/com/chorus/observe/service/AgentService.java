@@ -16,7 +16,9 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -39,6 +41,38 @@ public class AgentService {
 
     public @NonNull List<Agent> listAgents() {
         return agentRepository.findAll();
+    }
+
+    /**
+     * Batch query for 24-hour metrics across ALL agents in one round-trip.
+     * Returns a map keyed by agent_id.
+     */
+    public @NonNull Map<String, AgentMetricsSummary> getAll24hMetrics() {
+        String sql = """
+            SELECT agent_id,
+                   COUNT(*) AS runs24h,
+                   COALESCE(SUM(total_cost), 0) AS cost24h,
+                   COALESCE(SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END), 0) AS errors24h,
+                   COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)::bigint AS latency_p95,
+                   COALESCE(SUM(CASE WHEN status = 'ERROR' THEN 1.0 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0) AS error_rate
+            FROM runs
+            WHERE start_time >= NOW() - INTERVAL '24 hours'
+            GROUP BY agent_id
+            """;
+        Map<String, AgentMetricsSummary> result = new HashMap<>();
+        jdbc.query(sql, (rs, rowNum) -> {
+            String agentId = rs.getString("agent_id");
+            AgentMetricsSummary summary = new AgentMetricsSummary(
+                rs.getLong("runs24h"),
+                rs.getDouble("cost24h"),
+                rs.getLong("errors24h"),
+                rs.getLong("latency_p95"),
+                rs.getDouble("error_rate")
+            );
+            result.put(agentId, summary);
+            return summary;
+        });
+        return result;
     }
 
     public @NonNull Optional<Agent> getAgent(@NonNull String agentId) {
@@ -272,11 +306,7 @@ public class AgentService {
         if (storedProvider != null && !storedProvider.isBlank() && !"unknown".equalsIgnoreCase(storedProvider)) {
             return storedProvider;
         }
-        String m = model.toLowerCase();
-        if (m.startsWith("gpt-")) return "openai";
-        if (m.startsWith("claude-")) return "anthropic";
-        if (m.startsWith("gemini-")) return "google";
-        return "unknown";
+        return DashboardService.inferProvider(model);
     }
 
     public record AgentWithMetrics(
@@ -319,6 +349,21 @@ public class AgentService {
         public AgentModelDistribution {
             Objects.requireNonNull(model, "model");
             Objects.requireNonNull(provider, "provider");
+        }
+    }
+
+    /**
+     * Lightweight 24-hour metrics summary for a single agent, produced by the batch query.
+     */
+    public record AgentMetricsSummary(
+        long runs24h,
+        double cost24h,
+        long errors24h,
+        long latencyP95,
+        double errorRate
+    ) {
+        public static AgentMetricsSummary empty() {
+            return new AgentMetricsSummary(0L, 0.0, 0L, 0L, 0.0);
         }
     }
 }

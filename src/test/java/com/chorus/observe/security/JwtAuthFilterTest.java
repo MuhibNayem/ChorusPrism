@@ -1,11 +1,13 @@
 package com.chorus.observe.security;
 
+import com.chorus.observe.persistence.TokenBlacklistRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -29,7 +31,9 @@ class JwtAuthFilterTest {
         SecurityContextHolder.clearContext();
         TenantContext.clear();
         tokenService = new JwtTokenService(TEST_SECRET, Duration.ofMinutes(60));
-        filter = new JwtAuthFilter(tokenService, true);
+        TokenBlacklistRepository blacklist = Mockito.mock(TokenBlacklistRepository.class);
+        Mockito.when(blacklist.isRevoked(Mockito.anyString())).thenReturn(false);
+        filter = new JwtAuthFilter(tokenService, blacklist, true);
     }
 
     @Test

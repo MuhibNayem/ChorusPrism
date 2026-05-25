@@ -36,16 +36,17 @@ public class UserService {
 
     public @NonNull User createUser(@NonNull String tenantId, @NonNull String email, @NonNull String rawPassword,
                                     @NonNull String displayName) {
-        String userId = "usr-" + UUID.randomUUID().toString().substring(0, 8);
+        // Full UUID avoids birthday-problem collision (vs 8-char truncated IDs)
+        String userId = "usr-" + UUID.randomUUID();
         User user = new User(userId, tenantId, email.toLowerCase(), passwordEncoder.encode(rawPassword),
             displayName, User.Status.ACTIVE, null, User.AuthSource.LOCAL, Instant.now(), Instant.now());
         userRepository.save(user);
-        LOG.info("Created user: {} in tenant {}", email, tenantId);
+        LOG.info("Created user in tenant {}", tenantId);
         return user;
     }
 
     public @NonNull Optional<User> authenticate(@NonNull String tenantId, @NonNull String email, @NonNull String rawPassword) {
-        Optional<User> opt = userRepository.findByEmail(tenantId, email.toLowerCase());
+        Optional<User> opt = userRepository.findByEmailIgnoreCase(tenantId, email);
         if (opt.isEmpty()) return Optional.empty();
         User user = opt.get();
         if (user.status() != User.Status.ACTIVE) return Optional.empty();
@@ -55,6 +56,10 @@ public class UserService {
 
     public @NonNull Optional<User> getUser(@NonNull String userId) {
         return userRepository.findById(userId);
+    }
+
+    public @NonNull Optional<User> findByEmail(@NonNull String tenantId, @NonNull String email) {
+        return userRepository.findByEmailIgnoreCase(tenantId, email.toLowerCase());
     }
 
     public java.util.@NonNull List<User> listUsersByTenant(@NonNull String tenantId) {
@@ -73,10 +78,28 @@ public class UserService {
             .toList();
     }
 
+    /**
+     * Returns all permissions for a user in a single JOIN query (no N+1).
+     */
     public java.util.@NonNull List<String> getUserPermissions(@NonNull String userId) {
-        return getUserRoles(userId).stream()
-            .flatMap(r -> r.permissions().stream())
-            .distinct()
-            .toList();
+        return userRoleRepository.findPermissionsByUserId(userId);
+    }
+
+    public void updateLastLoginAt(@NonNull String userId) {
+        Instant now = Instant.now();
+        userRepository.findById(userId).ifPresent(user -> {
+            User updated = new User(user.userId(), user.tenantId(), user.email(), user.passwordHash(),
+                user.displayName(), user.status(), now, user.authSource(), user.createdAt(), now);
+            userRepository.save(updated);
+        });
+    }
+
+    public void updatePassword(@NonNull String userId, @NonNull String newRawPassword) {
+        userRepository.findById(userId).ifPresent(user -> {
+            User updated = new User(user.userId(), user.tenantId(), user.email(),
+                passwordEncoder.encode(newRawPassword), user.displayName(), user.status(),
+                user.lastLoginAt(), user.authSource(), user.createdAt(), Instant.now());
+            userRepository.save(updated);
+        });
     }
 }

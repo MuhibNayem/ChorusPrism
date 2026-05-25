@@ -35,6 +35,6 @@ public record AlertRule(
     }
 
     public enum Severity {
-        LOW, MEDIUM, HIGH, CRITICAL
+        error, warning, info
     }
 }

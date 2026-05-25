@@ -33,6 +33,7 @@ class JwtTokenServiceTest {
         assertThat(claims).isNotNull();
         assertThat(claims.userId()).isEqualTo("user-1");
         assertThat(claims.tenantId()).isEqualTo("tenant-1");
+        assertThat(claims.jti()).isNotNull().isNotBlank();
         assertThat(claims.scopes()).containsExactlyInAnyOrder("runs:read", "admin");
         assertThat(claims.expiresAt()).isAfter(Instant.now());
     }
