@@ -1,7 +1,9 @@
 package com.chorus.observe.service;
 
 import com.chorus.observe.model.*;
+import com.chorus.observe.model.RagAttributes;
 import com.chorus.observe.persistence.AgentRepository;
+import com.chorus.observe.persistence.RagQueryRepository;
 import com.chorus.observe.persistence.RunRepository;
 import com.chorus.observe.security.TenantContext;
 import com.chorus.observe.config.ChorusObserveProperties;
@@ -66,6 +68,8 @@ public class OtlpIngestionService {
 
     private final ChorusObserveProperties properties;
     private final IngestionQueueRepository queueRepository;
+    private RagQueryRepository ragQueryRepository;
+    private RagScoringService ragScoringService;
     private final ScheduledExecutorService queueScheduler;
 
     public OtlpIngestionService(
@@ -127,6 +131,14 @@ public class OtlpIngestionService {
         });
         this.evictionScheduler.scheduleAtFixedRate(
             this::evictStaleAccumulators, EVICTION_INTERVAL_MINUTES, EVICTION_INTERVAL_MINUTES, TimeUnit.MINUTES);
+    }
+
+    public void setRagQueryRepository(@Nullable RagQueryRepository ragQueryRepository) {
+        this.ragQueryRepository = ragQueryRepository;
+    }
+
+    public void setRagScoringService(@Nullable RagScoringService ragScoringService) {
+        this.ragScoringService = ragScoringService;
     }
 
     public OtlpIngestionService(
@@ -201,6 +213,7 @@ public class OtlpIngestionService {
         List<Span> allSpans = new ArrayList<>(spans.size());
         List<LlmCall> allLlmCalls = new ArrayList<>();
         List<ToolCall> allToolCalls = new ArrayList<>();
+        List<RagQuery> allRagQueries = new ArrayList<>();
         Set<String> affectedRunIds = new HashSet<>();
 
         for (OtlpSpan otlp : spans) {
@@ -231,6 +244,11 @@ public class OtlpIngestionService {
                     if (toolCall != null) allToolCalls.add(toolCall);
                 }
 
+                if ("rag".equals(spanType) && ragQueryRepository != null) {
+                    RagQuery ragQuery = extractRagQuery(otlp, runId);
+                    if (ragQuery != null) allRagQueries.add(ragQuery);
+                }
+
                 if (streamService != null) {
                     streamService.publish(runId, span);
                 }
@@ -250,6 +268,18 @@ public class OtlpIngestionService {
         }
         if (!allToolCalls.isEmpty()) {
             spanStore.saveToolCalls(allToolCalls);
+        }
+        if (!allRagQueries.isEmpty() && ragQueryRepository != null) {
+            for (RagQuery rq : allRagQueries) {
+                try {
+                    ragQueryRepository.save(rq);
+                    if (ragScoringService != null) {
+                        ragScoringService.scoreAsync(rq);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to persist RAG query {}: {}", rq.queryId(), e.getMessage());
+                }
+            }
         }
 
         // Flush affected runs once per batch
@@ -496,6 +526,59 @@ public class OtlpIngestionService {
         );
     }
 
+    private @Nullable RagQuery extractRagQuery(@NonNull OtlpSpan otlp, @NonNull String runId) {
+        Map<String, Object> attrs = otlp.attributes();
+        long latencyMs = 0;
+        if (otlp.endTime() != null) {
+            latencyMs = Duration.between(otlp.startTime(), otlp.endTime()).toMillis();
+        }
+
+        // Support both Chorus-native (rag.*) and OTel semantic convention aliases
+        String queryText = Objects.toString(
+            attrs.getOrDefault(RagAttributes.QUERY_TEXT,
+                attrs.getOrDefault(RagAttributes.GEN_AI_RETRIEVAL_QUERY,
+                    attrs.getOrDefault("db.query.text", null))), null);
+        if (queryText == null) return null;
+
+        String retrievedChunks = Objects.toString(attrs.get(RagAttributes.RETRIEVED_CHUNKS), null);
+        String similarityScores = Objects.toString(attrs.get(RagAttributes.SIMILARITY_SCORES), null);
+        String collection = Objects.toString(
+            attrs.getOrDefault(RagAttributes.COLLECTION,
+                attrs.getOrDefault(RagAttributes.DB_VECTOR_COLLECTION_NAME, null)), null);
+
+        int topK = 5;
+        Object topKAttr = attrs.getOrDefault(RagAttributes.TOP_K, attrs.get(RagAttributes.DB_VECTOR_QUERY_TOP_K));
+        if (topKAttr instanceof Number n) topK = n.intValue();
+
+        int chunkCount = 0;
+        Object chunkAttr = attrs.getOrDefault(RagAttributes.CHUNK_COUNT, attrs.get(RagAttributes.DB_VECTOR_RESULT_COUNT));
+        if (chunkAttr instanceof Number n) {
+            chunkCount = n.intValue();
+        } else if (similarityScores != null) {
+            chunkCount = (int) similarityScores.chars().filter(c -> c == ',').count() + 1;
+        }
+
+        Map<String, Object> metadata = new HashMap<>();
+        Object cacheHit = attrs.get(RagAttributes.CACHE_HIT);
+        if (cacheHit != null) metadata.put("cache_hit", cacheHit.toString());
+        Object agentId = attrs.get(RagAttributes.GEN_AI_AGENT_ID);
+        if (agentId != null) metadata.put("agent", agentId.toString());
+
+        return RagQuery.ofIngestion(
+            otlp.spanId() + ":rag",
+            otlp.spanId(),
+            runId,
+            queryText,
+            retrievedChunks,
+            similarityScores,
+            latencyMs,
+            metadata,
+            chunkCount,
+            collection,
+            topK
+        );
+    }
+
     private @Nullable String classifySpanType(@NonNull OtlpSpan otlp) {
         String name = otlp.name();
         Map<String, Object> attrs = otlp.attributes();
@@ -505,7 +588,10 @@ public class OtlpIngestionService {
         if (name.startsWith("tool.") || attrs.containsKey("chorus.tool.name")) {
             return "tool";
         }
-        if (name.startsWith("rag.") || attrs.containsKey("rag.collection")) {
+        if (name.startsWith("rag.") || attrs.containsKey(RagAttributes.COLLECTION)
+                || attrs.containsKey(RagAttributes.DB_VECTOR_COLLECTION_NAME)
+                || attrs.containsKey(RagAttributes.GEN_AI_RETRIEVAL_QUERY)
+                || name.startsWith("db.vector.") || name.startsWith("retrieval.")) {
             return "rag";
         }
         if (name.startsWith("guardrail.") || attrs.containsKey("guard.policy")) {

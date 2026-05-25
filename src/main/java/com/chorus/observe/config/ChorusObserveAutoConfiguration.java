@@ -290,12 +290,17 @@ public class ChorusObserveAutoConfiguration {
             ObjectProvider<SpanStreamService> streamServiceProvider,
             ObjectProvider<MetricsService> metricsServiceProvider,
             ObjectProvider<AgentRepository> agentRepositoryProvider,
-            ObjectProvider<ApplicationEventPublisher> eventPublisherProvider) {
+            ObjectProvider<ApplicationEventPublisher> eventPublisherProvider,
+            ObjectProvider<RagQueryRepository> ragQueryRepositoryProvider,
+            ObjectProvider<RagScoringService> ragScoringServiceProvider) {
         SpanStreamService streamService = streamServiceProvider.getIfAvailable();
         MetricsService metricsService = metricsServiceProvider.getIfAvailable();
         AgentRepository agentRepository = agentRepositoryProvider.getIfAvailable();
         ApplicationEventPublisher eventPublisher = eventPublisherProvider.getIfAvailable();
-        return new OtlpIngestionService(runRepository, spanStore, mapper, properties, ingestionQueueRepository, streamService, metricsService, agentRepository, eventPublisher);
+        OtlpIngestionService svc = new OtlpIngestionService(runRepository, spanStore, mapper, properties, ingestionQueueRepository, streamService, metricsService, agentRepository, eventPublisher);
+        svc.setRagQueryRepository(ragQueryRepositoryProvider.getIfAvailable());
+        svc.setRagScoringService(ragScoringServiceProvider.getIfAvailable());
+        return svc;
     }
 
     @Bean
@@ -1529,8 +1534,32 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public RagController ragController() {
-        return new RagController();
+    public RagScoringService ragScoringService(
+            @NonNull RagQueryRepository ragQueryRepository,
+            @NonNull ObjectMapper mapper,
+            @NonNull ChorusObserveProperties properties) {
+        String judgeUrl = properties.getEval().getLlmJudgeUrl();
+        return new RagScoringService(ragQueryRepository, mapper, judgeUrl != null && !judgeUrl.isBlank() ? judgeUrl : null);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RagQueryClusteringService ragQueryClusteringService(
+            @NonNull RagQueryRepository ragQueryRepository,
+            ObjectProvider<EmbeddingInvoker> embeddingInvokerProvider,
+            @NonNull ChorusObserveProperties properties) {
+        EmbeddingInvoker embedder = embeddingInvokerProvider.getIfAvailable();
+        String model = properties.getEval().getEmbeddingModel();
+        return new RagQueryClusteringService(ragQueryRepository, embedder, model);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RagController ragController(
+            @NonNull RagQueryRepository ragQueryRepository,
+            ObjectProvider<RagQueryClusteringService> clusteringProvider) {
+        RagQueryClusteringService clustering = clusteringProvider.getIfAvailable();
+        return new RagController(ragQueryRepository, clustering);
     }
 
     @Bean
@@ -1663,9 +1692,15 @@ public class ChorusObserveAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public EmbeddingInvoker embeddingInvoker(@NonNull ObjectMapper mapper, @NonNull ChorusObserveProperties properties) {
-        String endpoint = properties.getEval().getAgentEndpoint();
-        // Default to OpenAI-style embeddings endpoint if the agent endpoint looks like a base URL
-        String embeddingEndpoint = endpoint.replace("/invoke", "/embeddings");
-        return new HttpEmbeddingInvoker(mapper, embeddingEndpoint);
+        String explicit = properties.getEval().getEmbeddingEndpoint();
+        if (explicit != null && !explicit.isBlank()) {
+            LOG.info("Chorus Observe embeddings using explicit endpoint: {}", explicit);
+            return new HttpEmbeddingInvoker(mapper, explicit);
+        }
+        // Derive from agent endpoint: replace /invoke suffix, or append /embeddings
+        String agent = properties.getEval().getAgentEndpoint();
+        String derived = agent.endsWith("/invoke") ? agent.replace("/invoke", "/embeddings") : agent + "/embeddings";
+        LOG.info("Chorus Observe embeddings using derived endpoint: {} (set chorus.observe.eval.embedding-endpoint to override)", derived);
+        return new HttpEmbeddingInvoker(mapper, derived);
     }
 }

@@ -148,6 +148,10 @@ public class ChorusObserveProperties {
         private String agentEndpoint = "http://localhost:8080/invoke";
         private int defaultParallelism = 8;
         private int maxParallelism = 32;
+        private String llmJudgeUrl;
+        private String embeddingModel = "text-embedding-3-small";
+        /** Explicit OpenAI-compatible embeddings endpoint. When set, takes precedence over the derived agentEndpoint. */
+        private String embeddingEndpoint;
 
         public String getAgentEndpoint() { return agentEndpoint; }
         public void setAgentEndpoint(String agentEndpoint) { this.agentEndpoint = agentEndpoint; }
@@ -155,6 +159,12 @@ public class ChorusObserveProperties {
         public void setDefaultParallelism(int defaultParallelism) { this.defaultParallelism = defaultParallelism; }
         public int getMaxParallelism() { return maxParallelism; }
         public void setMaxParallelism(int maxParallelism) { this.maxParallelism = maxParallelism; }
+        public String getLlmJudgeUrl() { return llmJudgeUrl; }
+        public void setLlmJudgeUrl(String llmJudgeUrl) { this.llmJudgeUrl = llmJudgeUrl; }
+        public String getEmbeddingModel() { return embeddingModel; }
+        public void setEmbeddingModel(String embeddingModel) { this.embeddingModel = embeddingModel; }
+        public String getEmbeddingEndpoint() { return embeddingEndpoint; }
+        public void setEmbeddingEndpoint(String embeddingEndpoint) { this.embeddingEndpoint = embeddingEndpoint; }
     }
 
     public static class Security {

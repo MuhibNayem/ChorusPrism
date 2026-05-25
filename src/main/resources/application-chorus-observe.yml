@@ -32,6 +32,20 @@ chorus:
       secret: "${JWT_SECRET:}"
       expiry-minutes: 15
       refresh-expiry-days: 7
+    eval:
+      # LLM-as-judge for faithfulness + answer relevancy scoring (RAGAS).
+      # Any OpenAI-compatible chat completions endpoint works (OpenAI, vLLM, Ollama, LiteLLM).
+      # Leave blank to skip async LLM scoring; context_precision and context_recall
+      # are always computed deterministically from similarity scores.
+      llm-judge-url: ""  # e.g. https://api.openai.com/v1/chat/completions
+
+      # OpenAI-compatible embeddings endpoint for semantic query clustering and drift detection.
+      # When set, takes precedence over the derived agentEndpoint.
+      # Leave blank if you don't need clustering or are happy with keyword-based fallback.
+      embedding-endpoint: ""  # e.g. https://api.openai.com/v1/embeddings
+
+      # Embedding model name passed to the embeddings endpoint.
+      embedding-model: text-embedding-3-small
     security:
       api-key-enabled: false
     rate-limit:

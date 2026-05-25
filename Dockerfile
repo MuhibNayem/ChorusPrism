@@ -17,7 +17,7 @@ ENV PATH="/opt/gradle/bin:${PATH}"
 COPY build.gradle.kts settings.gradle.kts ./
 COPY src ./src
 
-# Build
+# Build (explicit DNS for Shibboleth Maven repo resolution)
 RUN gradle bootJar --no-daemon -x test
 
 # Runtime stage
