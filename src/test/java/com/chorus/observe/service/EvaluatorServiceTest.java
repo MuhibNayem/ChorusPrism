@@ -3,6 +3,7 @@ package com.chorus.observe.service;
 import com.chorus.observe.eval.NgramHallucinationScorer;
 import com.chorus.observe.model.*;
 import com.chorus.observe.persistence.*;
+import com.chorus.observe.persistence.InMemoryRunRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -19,6 +20,7 @@ class EvaluatorServiceTest {
     private InMemoryEvaluatorRepository evaluatorRepository;
     private InMemoryRunEvaluationRepository runEvaluationRepository;
     private InMemoryLlmCallRepository llmCallRepository;
+    private InMemoryRunRepository runRepository;
     private EvaluatorService evaluatorService;
 
     @BeforeEach
@@ -26,8 +28,10 @@ class EvaluatorServiceTest {
         evaluatorRepository = new InMemoryEvaluatorRepository();
         runEvaluationRepository = new InMemoryRunEvaluationRepository();
         llmCallRepository = new InMemoryLlmCallRepository();
+        runRepository = new InMemoryRunRepository();
         evaluatorService = new EvaluatorService(
             evaluatorRepository, runEvaluationRepository, llmCallRepository,
+            runRepository, (config, input) -> "10/10 perfect",
             new NgramHallucinationScorer(), null
         );
     }
@@ -89,12 +93,12 @@ class EvaluatorServiceTest {
 
     @Test
     void shouldReturnPendingForUnknownKind() {
-        Evaluator evaluator = evaluatorService.createEvaluator("Unknown", "regex", null, Map.of());
+        Evaluator evaluator = evaluatorService.createEvaluator("Unknown", "unsupported", null, Map.of());
         RunEvaluation result = evaluatorService.evaluateRun("run-1", evaluator.evaluatorId());
-
+ 
         assertThat(result.score()).isEqualTo(0.0);
         assertThat(result.passed()).isFalse();
-        assertThat(result.details().get("reason")).isEqualTo("kind not implemented: regex");
+        assertThat(result.details().get("reason")).isEqualTo("kind not implemented: unsupported");
     }
 
     @Test

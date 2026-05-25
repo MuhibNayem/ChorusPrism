@@ -27,7 +27,7 @@ class TeamsDispatcherTest {
     void shouldBuildAdaptiveCardPayload() {
         AlertRule rule = new AlertRule(
             "rule-1", "High Latency", "latency > 1000",
-            1000.0, AlertRule.Severity.HIGH, null, null,
+            1000.0, AlertRule.Severity.error, null, null,
             true, 300, Map.of(), Instant.now(), Instant.now()
         );
         AlertEvent event = new AlertEvent(
@@ -39,19 +39,19 @@ class TeamsDispatcherTest {
 
         assertThat(payload.get("@type")).isEqualTo("MessageCard");
         assertThat(payload.get("@context")).isEqualTo("https://schema.org/extensions");
-        assertThat(payload.get("themeColor")).isEqualTo("FF8C00");
+        assertThat(payload.get("themeColor")).isEqualTo("FF0000");
         assertThat(payload.get("summary")).isEqualTo("Chorus Alert: High Latency");
 
         List<Map<String, Object>> sections = (List<Map<String, Object>>) payload.get("sections");
         assertThat(sections).hasSize(1);
         Map<String, Object> section = sections.get(0);
         assertThat(section.get("activityTitle")).isEqualTo("Chorus Alert");
-        assertThat(section.get("activitySubtitle")).isEqualTo("HIGH | High Latency");
+        assertThat(section.get("activitySubtitle")).isEqualTo("error | High Latency");
 
         List<Map<String, Object>> facts = (List<Map<String, Object>>) section.get("facts");
         assertThat(facts).hasSize(6);
         assertThat(facts.get(0)).containsEntry("name", "Rule").containsEntry("value", "High Latency");
-        assertThat(facts.get(1)).containsEntry("name", "Severity").containsEntry("value", "HIGH");
+        assertThat(facts.get(1)).containsEntry("name", "Severity").containsEntry("value", "error");
         assertThat(facts.get(2)).containsEntry("name", "Value").containsEntry("value", "1500.00");
         assertThat(facts.get(3)).containsEntry("name", "Threshold").containsEntry("value", "1000.00");
         assertThat(facts.get(4)).containsEntry("name", "Time").containsEntry("value", "2026-05-23T10:00:00Z");
@@ -62,7 +62,7 @@ class TeamsDispatcherTest {
     void criticalSeverityShouldUseRedTheme() {
         AlertRule rule = new AlertRule(
             "rule-2", "System Down", "error_rate > 0.5",
-            0.5, AlertRule.Severity.CRITICAL, null, null,
+            0.5, AlertRule.Severity.error, null, null,
             true, 300, Map.of(), Instant.now(), Instant.now()
         );
         AlertEvent event = new AlertEvent(
@@ -77,7 +77,7 @@ class TeamsDispatcherTest {
     void lowSeverityShouldUseGreenTheme() {
         AlertRule rule = new AlertRule(
             "rule-3", "Info", "count > 0",
-            0.0, AlertRule.Severity.LOW, null, null,
+            0.0, AlertRule.Severity.info, null, null,
             true, 300, Map.of(), Instant.now(), Instant.now()
         );
         AlertEvent event = new AlertEvent(
@@ -96,7 +96,7 @@ class TeamsDispatcherTest {
             true, Instant.now(), Instant.now(), Instant.now()
         );
         AlertRule rule = new AlertRule(
-            "rule-1", "Test", "x > 1", 1.0, AlertRule.Severity.MEDIUM,
+            "rule-1", "Test", "x > 1", 1.0, AlertRule.Severity.warning,
             null, null, true, 300, Map.of(), Instant.now(), Instant.now()
         );
         AlertEvent event = new AlertEvent(

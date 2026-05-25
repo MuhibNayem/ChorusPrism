@@ -63,7 +63,7 @@ class AlertRetrySchedulerTest {
     @Test
     void shouldRetryEventsWithNextRetryInPast() {
         AlertRule rule = new AlertRule("rule-1", "Test", "x > 1", 1.0,
-            AlertRule.Severity.MEDIUM, null, null, true, 300, Map.of(),
+            AlertRule.Severity.warning, null, null, true, 300, Map.of(),
             Instant.now(), Instant.now());
         alertRuleRepository.save(rule);
 
@@ -82,7 +82,7 @@ class AlertRetrySchedulerTest {
     @Test
     void shouldNotRetryEventsWithFutureNextRetry() {
         AlertRule rule = new AlertRule("rule-1", "Test", "x > 1", 1.0,
-            AlertRule.Severity.MEDIUM, null, null, true, 300, Map.of(),
+            AlertRule.Severity.warning, null, null, true, 300, Map.of(),
             Instant.now(), Instant.now());
         alertRuleRepository.save(rule);
 
@@ -99,7 +99,7 @@ class AlertRetrySchedulerTest {
     @Test
     void shouldNotRetryEventsAtMaxRetryCount() {
         AlertRule rule = new AlertRule("rule-1", "Test", "x > 1", 1.0,
-            AlertRule.Severity.MEDIUM, null, null, true, 300, Map.of(),
+            AlertRule.Severity.warning, null, null, true, 300, Map.of(),
             Instant.now(), Instant.now());
         alertRuleRepository.save(rule);
 
@@ -116,7 +116,7 @@ class AlertRetrySchedulerTest {
     @Test
     void shouldNotRetryEventsWithNullNextRetry() {
         AlertRule rule = new AlertRule("rule-1", "Test", "x > 1", 1.0,
-            AlertRule.Severity.MEDIUM, null, null, true, 300, Map.of(),
+            AlertRule.Severity.warning, null, null, true, 300, Map.of(),
             Instant.now(), Instant.now());
         alertRuleRepository.save(rule);
 

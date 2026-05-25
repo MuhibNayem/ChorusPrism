@@ -316,9 +316,11 @@ public class ChorusObserveAutoConfiguration {
             @NonNull EvaluatorRepository evaluatorRepository,
             @NonNull RunEvaluationRepository runEvaluationRepository,
             @NonNull LlmCallRepository llmCallRepository,
+            @NonNull RunRepository runRepository,
+            @NonNull AgentInvoker agentInvoker,
             @NonNull NgramHallucinationScorer ngramScorer,
             @NonNull LlmJudgeHallucinationScorer llmJudgeScorer) {
-        return new EvaluatorService(evaluatorRepository, runEvaluationRepository, llmCallRepository, ngramScorer, llmJudgeScorer);
+        return new EvaluatorService(evaluatorRepository, runEvaluationRepository, llmCallRepository, runRepository, agentInvoker, ngramScorer, llmJudgeScorer);
     }
 
     @Bean
@@ -329,10 +331,30 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public EvalLoopRepository evalLoopRepository(@NonNull DataSource dataSource) {
+        return new EvalLoopRepository(dataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EvalLoopService evalLoopService(@NonNull EvalLoopRepository evalLoopRepository) {
+        return new EvalLoopService(evalLoopRepository);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EvalLoopController evalLoopController(@NonNull EvalLoopService evalLoopService) {
+        return new EvalLoopController(evalLoopService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public RunCompletedEventListener runCompletedEventListener(
             @NonNull EvaluatorRepository evaluatorRepository,
-            @NonNull EvaluatorService evaluatorService) {
-        return new RunCompletedEventListener(evaluatorRepository, evaluatorService);
+            @NonNull EvaluatorService evaluatorService,
+            @NonNull RunRepository runRepository,
+            @NonNull EvalLoopRepository evalLoopRepository) {
+        return new RunCompletedEventListener(evaluatorRepository, evaluatorService, runRepository, evalLoopRepository);
     }
 
     @Bean

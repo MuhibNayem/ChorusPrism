@@ -4,6 +4,8 @@ import com.chorus.observe.model.*;
 import com.chorus.observe.persistence.InMemoryEvaluatorRepository;
 import com.chorus.observe.persistence.InMemoryLlmCallRepository;
 import com.chorus.observe.persistence.InMemoryRunEvaluationRepository;
+import com.chorus.observe.persistence.InMemoryRunRepository;
+import com.chorus.observe.persistence.InMemoryEvalLoopRepository;
 import com.chorus.observe.eval.NgramHallucinationScorer;
 import com.chorus.observe.service.EvaluatorService;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +24,8 @@ class RunCompletedEventListenerTest {
     private InMemoryEvaluatorRepository evaluatorRepository;
     private InMemoryRunEvaluationRepository runEvaluationRepository;
     private InMemoryLlmCallRepository llmCallRepository;
+    private InMemoryRunRepository runRepository;
+    private InMemoryEvalLoopRepository evalLoopRepository;
     private EvaluatorService evaluatorService;
     private RunCompletedEventListener listener;
     private AtomicInteger evaluateCallCount;
@@ -31,10 +35,13 @@ class RunCompletedEventListenerTest {
         evaluatorRepository = new InMemoryEvaluatorRepository();
         runEvaluationRepository = new InMemoryRunEvaluationRepository();
         llmCallRepository = new InMemoryLlmCallRepository();
+        runRepository = new InMemoryRunRepository();
+        evalLoopRepository = new InMemoryEvalLoopRepository();
         evaluateCallCount = new AtomicInteger(0);
 
         evaluatorService = new EvaluatorService(
             evaluatorRepository, runEvaluationRepository, llmCallRepository,
+            runRepository, (config, input) -> "10/10 perfect",
             new NgramHallucinationScorer(), null
         ) {
             @Override
@@ -44,7 +51,7 @@ class RunCompletedEventListenerTest {
             }
         };
 
-        listener = new RunCompletedEventListener(evaluatorRepository, evaluatorService);
+        listener = new RunCompletedEventListener(evaluatorRepository, evaluatorService, runRepository, evalLoopRepository);
     }
 
     @Test
@@ -103,6 +110,7 @@ class RunCompletedEventListenerTest {
 
         EvaluatorService failingService = new EvaluatorService(
             evaluatorRepository, runEvaluationRepository, llmCallRepository,
+            runRepository, (config, input) -> "10/10 perfect",
             new NgramHallucinationScorer(), null
         ) {
             @Override
@@ -115,7 +123,7 @@ class RunCompletedEventListenerTest {
             }
         };
 
-        RunCompletedEventListener failingListener = new RunCompletedEventListener(evaluatorRepository, failingService);
+        RunCompletedEventListener failingListener = new RunCompletedEventListener(evaluatorRepository, failingService, runRepository, evalLoopRepository);
         RunCompletedEvent event = new RunCompletedEvent(this, "run-1", "tenant-1", Run.Status.SUCCESS);
         failingListener.onRunCompleted(event);
 

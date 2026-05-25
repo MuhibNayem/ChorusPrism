@@ -45,7 +45,7 @@ class NotificationServiceTest {
         );
 
         AlertRule rule = new AlertRule("rule-1", "Test", "x > 1", 1.0,
-            AlertRule.Severity.HIGH, null, null, true, 300, Map.of(),
+            AlertRule.Severity.error, null, null, true, 300, Map.of(),
             Instant.now(), Instant.now());
         AlertEvent event = new AlertEvent("evt-1", "rule-1", Instant.now(), 2.0,
             null, false, Map.of(), Instant.now());
@@ -86,7 +86,7 @@ class NotificationServiceTest {
         );
 
         AlertRule rule = new AlertRule("rule-1", "Test", "x > 1", 1.0,
-            AlertRule.Severity.MEDIUM, null, null, true, 300, Map.of(),
+            AlertRule.Severity.warning, null, null, true, 300, Map.of(),
             Instant.now(), Instant.now());
         AlertEvent event = new AlertEvent("evt-1", "rule-1", Instant.now(), 2.0,
             null, false, Map.of(), Instant.now());
@@ -112,7 +112,7 @@ class NotificationServiceTest {
         );
 
         AlertRule rule = new AlertRule("rule-1", "Test", "x > 1", 1.0,
-            AlertRule.Severity.LOW, null, null, true, 300, Map.of(),
+            AlertRule.Severity.info, null, null, true, 300, Map.of(),
             Instant.now(), Instant.now());
         AlertEvent event = new AlertEvent("evt-1", "rule-1", Instant.now(), 2.0,
             null, false, Map.of(), Instant.now());

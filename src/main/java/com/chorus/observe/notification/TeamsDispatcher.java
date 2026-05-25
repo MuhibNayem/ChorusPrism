@@ -68,9 +68,9 @@ public final class TeamsDispatcher implements NotificationDispatcher {
     Map<String, Object> buildPayload(@NonNull AlertRule rule, @NonNull AlertEvent event) {
         String severity = rule.severity() != null ? rule.severity().name() : "UNKNOWN";
         String themeColor = switch (severity) {
-            case "CRITICAL" -> "FF0000";
-            case "HIGH" -> "FF8C00";
-            case "MEDIUM" -> "FFD700";
+            case "error" -> "FF0000";
+            case "warning" -> "FFD700";
+            case "info" -> "008000";
             default -> "008000";
         };
 
