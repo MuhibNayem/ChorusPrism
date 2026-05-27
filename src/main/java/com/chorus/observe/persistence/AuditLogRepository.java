@@ -57,6 +57,28 @@ public class AuditLogRepository {
         return jdbc.query("SELECT * FROM audit_logs WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
     }
 
+    /** Same as {@link #findByTenant} but LEFT JOINs users to include email as display name. */
+    public @NonNull List<AuditLogEntry> findByTenantWithUsername(@NonNull String tenantId, int limit, int offset) {
+        return jdbc.query("""
+            SELECT a.*, u.email AS user_email, u.display_name AS user_display_name
+            FROM audit_logs a
+            LEFT JOIN users u ON u.user_id = a.user_id AND u.tenant_id = a.tenant_id
+            WHERE a.tenant_id = ?
+            ORDER BY a.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (rs, i) -> {
+                AuditLog log = rowMapper.mapRow(rs, i);
+                String email = rs.getString("user_email");
+                String displayName = rs.getString("user_display_name");
+                String username = displayName != null && !displayName.isBlank() ? displayName : email;
+                return new AuditLogEntry(log, username);
+            },
+            tenantId, limit, offset);
+    }
+
+    public record AuditLogEntry(@NonNull AuditLog log, String username) {}
+
     public @NonNull List<AuditLog> findByTenantAndAction(@NonNull String tenantId, @NonNull String action, int limit, int offset) {
         return jdbc.query("SELECT * FROM audit_logs WHERE tenant_id = ? AND action = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, action, limit, offset);
     }

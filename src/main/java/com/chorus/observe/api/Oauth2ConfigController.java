@@ -9,6 +9,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -33,7 +34,8 @@ public class Oauth2ConfigController {
         TenantOauthConfig config = service.create(
             TenantContext.getTenantId(), request.providerName(), request.clientId(),
             request.clientSecret(), request.issuerUri(), request.scopes(),
-            request.defaultRole() != null ? request.defaultRole() : "VIEWER");
+            request.defaultRole() != null ? request.defaultRole() : "VIEWER",
+            List.of(), List.of(), Map.of());
         return ResponseEntity.ok(config);
     }
 

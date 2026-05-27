@@ -234,7 +234,12 @@ public class OtlpIngestionService {
                 );
                 allSpans.add(span);
 
-                if (otlp.attributes().containsKey("gen_ai.system") || otlp.attributes().containsKey("gen_ai.request.model")) {
+                if (otlp.attributes().containsKey("gen_ai.system") 
+                        || otlp.attributes().containsKey("gen_ai.request.model")
+                        || otlp.attributes().containsKey("gen_ai.response.model")
+                        || otlp.attributes().containsKey("llm.request.model")
+                        || otlp.attributes().containsKey("model")
+                        || otlp.attributes().containsKey("model_name")) {
                     LlmCall llmCall = extractLlmCall(otlp, runId);
                     if (llmCall != null) allLlmCalls.add(llmCall);
                 }
@@ -334,6 +339,10 @@ public class OtlpIngestionService {
                 acc.agentId = agentIdAttr.toString();
             }
             Object model = otlp.attributes().get("gen_ai.request.model");
+            if (model == null) model = otlp.attributes().get("gen_ai.response.model");
+            if (model == null) model = otlp.attributes().get("llm.request.model");
+            if (model == null) model = otlp.attributes().get("model");
+            if (model == null) model = otlp.attributes().get("model_name");
             if (model != null) {
                 acc.model = model.toString();
             }
@@ -452,12 +461,19 @@ public class OtlpIngestionService {
 
         List<LlmCall.LlmMessage> messages = parseLlmMessages(attrs.get("gen_ai.messages"));
 
+        Object modelVal = attrs.get("gen_ai.request.model");
+        if (modelVal == null) modelVal = attrs.get("gen_ai.response.model");
+        if (modelVal == null) modelVal = attrs.get("llm.request.model");
+        if (modelVal == null) modelVal = attrs.get("model");
+        if (modelVal == null) modelVal = attrs.get("model_name");
+        String modelName = modelVal != null ? modelVal.toString() : "unknown";
+
         return new LlmCall(
             otlp.spanId() + ":llm",
             otlp.spanId(),
             runId,
             Objects.toString(attrs.getOrDefault("gen_ai.system", "unknown"), "unknown"),
-            Objects.toString(attrs.getOrDefault("gen_ai.request.model", "unknown"), "unknown"),
+            modelName,
             inputTokens,
             outputTokens,
             cost.setScale(8, RoundingMode.HALF_UP),

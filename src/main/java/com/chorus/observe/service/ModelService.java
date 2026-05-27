@@ -1,5 +1,6 @@
 package com.chorus.observe.service;
 
+import com.chorus.observe.security.TenantContext;
 import org.jspecify.annotations.NonNull;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -19,6 +20,29 @@ public class ModelService {
     }
 
     public @NonNull List<ModelMetrics> getModels() {
+        String tenantId = TenantContext.getTenantIdOrNull();
+        if (tenantId != null) {
+            return jdbc.query(
+                """
+                SELECT model,
+                       COUNT(*) as runs,
+                       COALESCE(SUM(total_tokens), 0) as tokens,
+                       COALESCE(SUM(total_cost), 0) as cost
+                FROM runs
+                WHERE model IS NOT NULL AND tenant_id = ?
+                GROUP BY model
+                ORDER BY runs DESC
+                """,
+                (rs, rowNum) -> new ModelMetrics(
+                    rs.getString("model"),
+                    DashboardService.inferProvider(rs.getString("model")),
+                    rs.getLong("runs"),
+                    rs.getLong("tokens"),
+                    rs.getBigDecimal("cost").doubleValue()
+                ),
+                tenantId
+            );
+        }
         return jdbc.query(
             """
             SELECT model,

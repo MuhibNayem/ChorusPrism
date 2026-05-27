@@ -96,6 +96,15 @@ public class AlertService {
             if (rule.webhookUrl() != null && !rule.webhookUrl().isBlank()) {
                 sendWebhook(rule.webhookUrl(), event, rule);
             }
+            if (rule.email() != null && !rule.email().isBlank()) {
+                // The legacy rule.email() field is stored but not directly dispatched here.
+                // Use a channel-based EMAIL NotificationChannel (linked via AlertRuleChannel)
+                // for email delivery. Direct SMTP dispatch from AlertService is not supported.
+                LOG.warn("Alert rule '{}' has a legacy email field set ('{}') but email dispatch is not " +
+                    "performed via this field. Configure an EMAIL notification channel and link it to " +
+                    "the rule via /api/v1/alerts/rules/{}/channels instead.",
+                    rule.name(), rule.email(), rule.ruleId());
+            }
             if (notificationService != null) {
                 notificationService.dispatchAlert(rule, event);
             }

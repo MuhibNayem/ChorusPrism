@@ -149,9 +149,10 @@ BEGIN
         sp_id := 'rag_sp_'   || i || '_' || md5(('rag_s' || i)::text);
         qid   := 'rag_q_'    || i || '_' || md5(('rag_q' || i)::text);
 
-        INSERT INTO runs (run_id, framework, agent_id, model, start_time, end_time, status, tags, metadata, total_tokens, total_cost, latency_ms)
+        INSERT INTO runs (run_id, tenant_id, framework, agent_id, model, start_time, end_time, status, tags, metadata, total_tokens, total_cost, latency_ms)
         VALUES (
             r_id,
+            'tnt-c7ab1040eff7',
             frameworks[agent_idx],
             agents_rag[agent_idx],
             'text-embedding-3-small',
@@ -188,7 +189,7 @@ BEGIN
             context_precision, context_recall, faithfulness, answer_relevancy,
             chunk_count, collection, top_k
         ) VALUES (
-            qid, 'default', sp_id, r_id, query_texts[q_idx],
+            qid, 'tnt-c7ab1040eff7', sp_id, r_id, query_texts[q_idx],
             chunks_arr, scores_arr, lat_ms,
             jsonb_build_object('cache_hit', hit_cache::TEXT, 'agent', agents_rag[agent_idx]),
             prec, rec, faith, rel,
@@ -233,7 +234,7 @@ BEGIN
                 alert_level, metadata
             ) VALUES (
                 'drift_' || d || '_' || c || '_' || md5((d * 10 + c)::TEXT),
-                'default', collections[c],
+                'tnt-c7ab1040eff7', collections[c],
                 period_s, period_e,
                 shift, vol_delta, prec_delta,
                 alert_lv,

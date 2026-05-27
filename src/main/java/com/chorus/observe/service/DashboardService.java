@@ -1,5 +1,6 @@
 package com.chorus.observe.service;
 
+import com.chorus.observe.security.TenantContext;
 import org.jspecify.annotations.NonNull;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -30,33 +31,295 @@ public class DashboardService {
         Instant windowStart = now.minus(windowHours, ChronoUnit.HOURS);
         Instant previousWindowStart = now.minus(windowHours * 2, ChronoUnit.HOURS);
 
-        // Current window overall stats
-        Map<String, Object> currentOverall = jdbc.queryForMap(
-            """
-            SELECT COUNT(*) as total_runs,
-                   COALESCE(SUM(total_tokens), 0) as total_tokens,
-                   COALESCE(SUM(total_cost), 0) as total_cost,
-                   COALESCE(AVG(latency_ms), 0) as avg_latency,
-                   COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms), 0) as p95_latency,
-                   COALESCE(SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END), 0) as error_count
-            FROM runs
-            WHERE start_time >= ? AND start_time < ?
-            """,
-            Timestamp.from(windowStart), Timestamp.from(now)
-        );
+        String tenantId = TenantContext.getTenantIdOrNull();
 
-        // Previous window overall stats
-        Map<String, Object> previousOverall = jdbc.queryForMap(
-            """
-            SELECT COUNT(*) as total_runs,
-                   COALESCE(SUM(total_tokens), 0) as total_tokens,
-                   COALESCE(SUM(total_cost), 0) as total_cost,
-                   COALESCE(AVG(latency_ms), 0) as avg_latency
-            FROM runs
-            WHERE start_time >= ? AND start_time < ?
-            """,
-            Timestamp.from(previousWindowStart), Timestamp.from(windowStart)
-        );
+        Map<String, Object> currentOverall;
+        Map<String, Object> previousOverall;
+        List<Integer> runsSpark = new ArrayList<>(Collections.nCopies(24, 0));
+        List<Integer> tokensSpark = new ArrayList<>(Collections.nCopies(24, 0));
+        List<Integer> costSpark = new ArrayList<>(Collections.nCopies(24, 0));
+        List<Integer> latencySpark = new ArrayList<>(Collections.nCopies(24, 0));
+        List<DayMetrics> runsByDay;
+        List<ModelMetrics> topModels;
+        List<AgentMetrics> topAgents;
+        List<StatusMetrics> statusBreakdown;
+
+        long windowSeconds = windowHours * 3600L;
+        long bucketSeconds = Math.max(1, windowSeconds / 24);
+
+        if (tenantId != null) {
+            // Current window overall stats (filtered by tenant)
+            currentOverall = jdbc.queryForMap(
+                """
+                SELECT COUNT(*) as total_runs,
+                       COALESCE(SUM(total_tokens), 0) as total_tokens,
+                       COALESCE(SUM(total_cost), 0) as total_cost,
+                       COALESCE(AVG(latency_ms), 0) as avg_latency,
+                       COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms), 0) as p95_latency,
+                       COALESCE(SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END), 0) as error_count
+                FROM runs
+                WHERE start_time >= ? AND start_time < ? AND tenant_id = ?
+                """,
+                Timestamp.from(windowStart), Timestamp.from(now), tenantId
+            );
+
+            // Previous window overall stats (filtered by tenant)
+            previousOverall = jdbc.queryForMap(
+                """
+                SELECT COUNT(*) as total_runs,
+                       COALESCE(SUM(total_tokens), 0) as total_tokens,
+                       COALESCE(SUM(total_cost), 0) as total_cost,
+                       COALESCE(AVG(latency_ms), 0) as avg_latency
+                FROM runs
+                WHERE start_time >= ? AND start_time < ? AND tenant_id = ?
+                """,
+                Timestamp.from(previousWindowStart), Timestamp.from(windowStart), tenantId
+            );
+
+            jdbc.query(
+                """
+                SELECT LEAST(23, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (start_time - ?)) / ?)::int)) as bucket,
+                       COUNT(*) as count,
+                       COALESCE(SUM(total_tokens), 0) as tokens,
+                       COALESCE(SUM(total_cost), 0) as cost,
+                       COALESCE(AVG(latency_ms), 0) as latency
+                FROM runs
+                WHERE start_time >= ? AND start_time < ? AND tenant_id = ?
+                GROUP BY bucket
+                ORDER BY bucket
+                """,
+                rs -> {
+                    int bucket = rs.getInt("bucket");
+                    if (bucket >= 0 && bucket < 24) {
+                        runsSpark.set(bucket, ((Number) rs.getObject("count")).intValue());
+                        tokensSpark.set(bucket, ((Number) rs.getObject("tokens")).intValue());
+                        costSpark.set(bucket, (int) Math.round(rs.getDouble("cost") * 100));
+                        latencySpark.set(bucket, (int) Math.round(rs.getDouble("latency")));
+                    }
+                },
+                Timestamp.from(windowStart), bucketSeconds, Timestamp.from(windowStart), Timestamp.from(now), tenantId
+            );
+
+            runsByDay = jdbc.query(
+                """
+                SELECT DATE(start_time) as day,
+                       COUNT(*) as count,
+                       COALESCE(SUM(total_tokens), 0) as tokens,
+                       COALESCE(SUM(total_cost), 0) as cost
+                FROM runs
+                WHERE start_time >= ? AND start_time < ? AND tenant_id = ?
+                GROUP BY DATE(start_time)
+                ORDER BY day ASC
+                """,
+                (rs, rowNum) -> new DayMetrics(
+                    rs.getDate("day").toLocalDate().toString(),
+                    rs.getLong("count"),
+                    rs.getLong("tokens"),
+                    rs.getBigDecimal("cost").doubleValue()
+                ),
+                Timestamp.from(windowStart), Timestamp.from(now), tenantId
+            );
+
+            topModels = jdbc.query(
+                """
+                SELECT model,
+                       COUNT(*) as calls,
+                       COALESCE(SUM(total_tokens), 0) as tokens,
+                       COALESCE(SUM(total_cost), 0) as cost
+                FROM runs
+                WHERE start_time >= ? AND start_time < ? AND model IS NOT NULL AND tenant_id = ?
+                GROUP BY model
+                ORDER BY calls DESC
+                LIMIT 5
+                """,
+                (rs, rowNum) -> new ModelMetrics(
+                    rs.getString("model"),
+                    inferProvider(rs.getString("model")),
+                    rs.getLong("calls"),
+                    rs.getLong("tokens"),
+                    rs.getBigDecimal("cost").doubleValue()
+                ),
+                Timestamp.from(windowStart), Timestamp.from(now), tenantId
+            );
+
+            topAgents = jdbc.query(
+                """
+                SELECT agent_id,
+                       MAX(framework) as framework,
+                       COUNT(*) as runs,
+                       COALESCE(SUM(total_tokens), 0) as tokens,
+                       COALESCE(SUM(total_cost), 0) as cost,
+                       COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms), 0) as p95,
+                       SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END) as errors
+                FROM runs
+                WHERE start_time >= ? AND start_time < ? AND tenant_id = ?
+                GROUP BY agent_id
+                ORDER BY runs DESC
+                LIMIT 5
+                """,
+                (rs, rowNum) -> new AgentMetrics(
+                    rs.getString("agent_id"),
+                    rs.getString("framework"),
+                    rs.getLong("runs"),
+                    rs.getLong("tokens"),
+                    rs.getBigDecimal("cost").doubleValue(),
+                    rs.getObject("p95") != null ? ((Number) rs.getObject("p95")).longValue() : 0L,
+                    rs.getLong("errors")
+                ),
+                Timestamp.from(windowStart), Timestamp.from(now), tenantId
+            );
+
+            statusBreakdown = jdbc.query(
+                """
+                SELECT status, COUNT(*) as count
+                FROM runs
+                WHERE start_time >= ? AND start_time < ? AND tenant_id = ?
+                GROUP BY status
+                """,
+                (rs, rowNum) -> new StatusMetrics(
+                    rs.getString("status"),
+                    rs.getLong("count"),
+                    0.0
+                ),
+                Timestamp.from(windowStart), Timestamp.from(now), tenantId
+            );
+        } else {
+            // Current window overall stats (global fallback)
+            currentOverall = jdbc.queryForMap(
+                """
+                SELECT COUNT(*) as total_runs,
+                       COALESCE(SUM(total_tokens), 0) as total_tokens,
+                       COALESCE(SUM(total_cost), 0) as total_cost,
+                       COALESCE(AVG(latency_ms), 0) as avg_latency,
+                       COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms), 0) as p95_latency,
+                       COALESCE(SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END), 0) as error_count
+                FROM runs
+                WHERE start_time >= ? AND start_time < ?
+                """,
+                Timestamp.from(windowStart), Timestamp.from(now)
+            );
+
+            // Previous window overall stats (global fallback)
+            previousOverall = jdbc.queryForMap(
+                """
+                SELECT COUNT(*) as total_runs,
+                       COALESCE(SUM(total_tokens), 0) as total_tokens,
+                       COALESCE(SUM(total_cost), 0) as total_cost,
+                       COALESCE(AVG(latency_ms), 0) as avg_latency
+                FROM runs
+                WHERE start_time >= ? AND start_time < ?
+                """,
+                Timestamp.from(previousWindowStart), Timestamp.from(windowStart)
+            );
+
+            jdbc.query(
+                """
+                SELECT LEAST(23, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (start_time - ?)) / ?)::int)) as bucket,
+                       COUNT(*) as count,
+                       COALESCE(SUM(total_tokens), 0) as tokens,
+                       COALESCE(SUM(total_cost), 0) as cost,
+                       COALESCE(AVG(latency_ms), 0) as latency
+                FROM runs
+                WHERE start_time >= ? AND start_time < ?
+                GROUP BY bucket
+                ORDER BY bucket
+                """,
+                rs -> {
+                    int bucket = rs.getInt("bucket");
+                    if (bucket >= 0 && bucket < 24) {
+                        runsSpark.set(bucket, ((Number) rs.getObject("count")).intValue());
+                        tokensSpark.set(bucket, ((Number) rs.getObject("tokens")).intValue());
+                        costSpark.set(bucket, (int) Math.round(rs.getDouble("cost") * 100));
+                        latencySpark.set(bucket, (int) Math.round(rs.getDouble("latency")));
+                    }
+                },
+                Timestamp.from(windowStart), bucketSeconds, Timestamp.from(windowStart), Timestamp.from(now)
+            );
+
+            runsByDay = jdbc.query(
+                """
+                SELECT DATE(start_time) as day,
+                       COUNT(*) as count,
+                       COALESCE(SUM(total_tokens), 0) as tokens,
+                       COALESCE(SUM(total_cost), 0) as cost
+                FROM runs
+                WHERE start_time >= ? AND start_time < ?
+                GROUP BY DATE(start_time)
+                ORDER BY day ASC
+                """,
+                (rs, rowNum) -> new DayMetrics(
+                    rs.getDate("day").toLocalDate().toString(),
+                    rs.getLong("count"),
+                    rs.getLong("tokens"),
+                    rs.getBigDecimal("cost").doubleValue()
+                ),
+                Timestamp.from(windowStart), Timestamp.from(now)
+            );
+
+            topModels = jdbc.query(
+                """
+                SELECT model,
+                       COUNT(*) as calls,
+                       COALESCE(SUM(total_tokens), 0) as tokens,
+                       COALESCE(SUM(total_cost), 0) as cost
+                FROM runs
+                WHERE start_time >= ? AND start_time < ? AND model IS NOT NULL
+                GROUP BY model
+                ORDER BY calls DESC
+                LIMIT 5
+                """,
+                (rs, rowNum) -> new ModelMetrics(
+                    rs.getString("model"),
+                    inferProvider(rs.getString("model")),
+                    rs.getLong("calls"),
+                    rs.getLong("tokens"),
+                    rs.getBigDecimal("cost").doubleValue()
+                ),
+                Timestamp.from(windowStart), Timestamp.from(now)
+            );
+
+            topAgents = jdbc.query(
+                """
+                SELECT agent_id,
+                       MAX(framework) as framework,
+                       COUNT(*) as runs,
+                       COALESCE(SUM(total_tokens), 0) as tokens,
+                       COALESCE(SUM(total_cost), 0) as cost,
+                       COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms), 0) as p95,
+                       SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END) as errors
+                FROM runs
+                WHERE start_time >= ? AND start_time < ?
+                GROUP BY agent_id
+                ORDER BY runs DESC
+                LIMIT 5
+                """,
+                (rs, rowNum) -> new AgentMetrics(
+                    rs.getString("agent_id"),
+                    rs.getString("framework"),
+                    rs.getLong("runs"),
+                    rs.getLong("tokens"),
+                    rs.getBigDecimal("cost").doubleValue(),
+                    rs.getObject("p95") != null ? ((Number) rs.getObject("p95")).longValue() : 0L,
+                    rs.getLong("errors")
+                ),
+                Timestamp.from(windowStart), Timestamp.from(now)
+            );
+
+            statusBreakdown = jdbc.query(
+                """
+                SELECT status, COUNT(*) as count
+                FROM runs
+                WHERE start_time >= ? AND start_time < ?
+                GROUP BY status
+                """,
+                (rs, rowNum) -> new StatusMetrics(
+                    rs.getString("status"),
+                    rs.getLong("count"),
+                    0.0
+                ),
+                Timestamp.from(windowStart), Timestamp.from(now)
+            );
+        }
 
         long totalRuns = ((Number) currentOverall.get("total_runs")).longValue();
         long totalTokens = ((Number) currentOverall.get("total_tokens")).longValue();
@@ -75,130 +338,6 @@ public class DashboardService {
         double tokensDelta = prevTokens > 0 ? ((totalTokens - prevTokens) * 100.0) / prevTokens : 0.0;
         double costDelta = prevCost > 0 ? ((totalCost - prevCost) * 100.0) / prevCost : 0.0;
         double latencyDelta = prevLatency > 0 ? ((avgLatencyMs - prevLatency) * 100.0) / prevLatency : 0.0;
-
-        // Sparklines (24 buckets)
-        List<Integer> runsSpark = new ArrayList<>(Collections.nCopies(24, 0));
-        List<Integer> tokensSpark = new ArrayList<>(Collections.nCopies(24, 0));
-        List<Integer> costSpark = new ArrayList<>(Collections.nCopies(24, 0));
-        List<Integer> latencySpark = new ArrayList<>(Collections.nCopies(24, 0));
-
-        long windowSeconds = windowHours * 3600L;
-        long bucketSeconds = windowSeconds / 24;
-        if (bucketSeconds < 1) {
-            bucketSeconds = 1;
-        }
-
-        jdbc.query(
-            """
-            SELECT LEAST(23, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (start_time - ?)) / ?)::int)) as bucket,
-                   COUNT(*) as count,
-                   COALESCE(SUM(total_tokens), 0) as tokens,
-                   COALESCE(SUM(total_cost), 0) as cost,
-                   COALESCE(AVG(latency_ms), 0) as latency
-            FROM runs
-            WHERE start_time >= ? AND start_time < ?
-            GROUP BY bucket
-            ORDER BY bucket
-            """,
-            rs -> {
-                int bucket = rs.getInt("bucket");
-                if (bucket >= 0 && bucket < 24) {
-                    runsSpark.set(bucket, ((Number) rs.getObject("count")).intValue());
-                    tokensSpark.set(bucket, ((Number) rs.getObject("tokens")).intValue());
-                    costSpark.set(bucket, (int) Math.round(rs.getDouble("cost") * 100));
-                    latencySpark.set(bucket, (int) Math.round(rs.getDouble("latency")));
-                }
-            },
-            Timestamp.from(windowStart), bucketSeconds, Timestamp.from(windowStart), Timestamp.from(now)
-        );
-
-        // Runs by day
-        List<DayMetrics> runsByDay = jdbc.query(
-            """
-            SELECT DATE(start_time) as day,
-                   COUNT(*) as count,
-                   COALESCE(SUM(total_tokens), 0) as tokens,
-                   COALESCE(SUM(total_cost), 0) as cost
-            FROM runs
-            WHERE start_time >= ? AND start_time < ?
-            GROUP BY DATE(start_time)
-            ORDER BY day ASC
-            """,
-            (rs, rowNum) -> new DayMetrics(
-                rs.getDate("day").toLocalDate().toString(),
-                rs.getLong("count"),
-                rs.getLong("tokens"),
-                rs.getBigDecimal("cost").doubleValue()
-            ),
-            Timestamp.from(windowStart), Timestamp.from(now)
-        );
-
-        // Top models
-        List<ModelMetrics> topModels = jdbc.query(
-            """
-            SELECT model,
-                   COUNT(*) as calls,
-                   COALESCE(SUM(total_tokens), 0) as tokens,
-                   COALESCE(SUM(total_cost), 0) as cost
-            FROM runs
-            WHERE start_time >= ? AND start_time < ? AND model IS NOT NULL
-            GROUP BY model
-            ORDER BY calls DESC
-            LIMIT 5
-            """,
-            (rs, rowNum) -> new ModelMetrics(
-                rs.getString("model"),
-                inferProvider(rs.getString("model")),
-                rs.getLong("calls"),
-                rs.getLong("tokens"),
-                rs.getBigDecimal("cost").doubleValue()
-            ),
-            Timestamp.from(windowStart), Timestamp.from(now)
-        );
-
-        // Top agents
-        List<AgentMetrics> topAgents = jdbc.query(
-            """
-            SELECT agent_id,
-                   MAX(framework) as framework,
-                   COUNT(*) as runs,
-                   COALESCE(SUM(total_tokens), 0) as tokens,
-                   COALESCE(SUM(total_cost), 0) as cost,
-                   COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms), 0) as p95,
-                   SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END) as errors
-            FROM runs
-            WHERE start_time >= ? AND start_time < ?
-            GROUP BY agent_id
-            ORDER BY runs DESC
-            LIMIT 5
-            """,
-            (rs, rowNum) -> new AgentMetrics(
-                rs.getString("agent_id"),
-                rs.getString("framework"),
-                rs.getLong("runs"),
-                rs.getLong("tokens"),
-                rs.getBigDecimal("cost").doubleValue(),
-                rs.getObject("p95") != null ? ((Number) rs.getObject("p95")).longValue() : 0L,
-                rs.getLong("errors")
-            ),
-            Timestamp.from(windowStart), Timestamp.from(now)
-        );
-
-        // Status breakdown
-        List<StatusMetrics> statusBreakdown = jdbc.query(
-            """
-            SELECT status, COUNT(*) as count
-            FROM runs
-            WHERE start_time >= ? AND start_time < ?
-            GROUP BY status
-            """,
-            (rs, rowNum) -> new StatusMetrics(
-                rs.getString("status"),
-                rs.getLong("count"),
-                0.0
-            ),
-            Timestamp.from(windowStart), Timestamp.from(now)
-        );
 
         List<StatusMetrics> statusWithPct = statusBreakdown.stream()
             .map(s -> new StatusMetrics(
@@ -236,25 +375,47 @@ public class DashboardService {
         Instant start = now.minus(windowHours, ChronoUnit.HOURS);
 
         int[][] grid = new int[7][24];
+        String tenantId = TenantContext.getTenantIdOrNull();
 
-        jdbc.query(
-            """
-            SELECT EXTRACT(DOW FROM start_time)::int as dow,
-                   EXTRACT(HOUR FROM start_time)::int as hr,
-                   COUNT(*) as cnt
-            FROM runs
-            WHERE start_time >= ?
-            GROUP BY dow, hr
-            """,
-            rs -> {
-                int dow = rs.getInt("dow");
-                int hr = rs.getInt("hr");
-                if (dow >= 0 && dow < 7 && hr >= 0 && hr < 24) {
-                    grid[dow][hr] = rs.getInt("cnt");
-                }
-            },
-            Timestamp.from(start)
-        );
+        if (tenantId != null) {
+            jdbc.query(
+                """
+                SELECT EXTRACT(DOW FROM start_time)::int as dow,
+                       EXTRACT(HOUR FROM start_time)::int as hr,
+                       COUNT(*) as cnt
+                FROM runs
+                WHERE start_time >= ? AND tenant_id = ?
+                GROUP BY dow, hr
+                """,
+                rs -> {
+                    int dow = rs.getInt("dow");
+                    int hr = rs.getInt("hr");
+                    if (dow >= 0 && dow < 7 && hr >= 0 && hr < 24) {
+                        grid[dow][hr] = rs.getInt("cnt");
+                    }
+                },
+                Timestamp.from(start), tenantId
+            );
+        } else {
+            jdbc.query(
+                """
+                SELECT EXTRACT(DOW FROM start_time)::int as dow,
+                       EXTRACT(HOUR FROM start_time)::int as hr,
+                       COUNT(*) as cnt
+                FROM runs
+                WHERE start_time >= ?
+                GROUP BY dow, hr
+                """,
+                rs -> {
+                    int dow = rs.getInt("dow");
+                    int hr = rs.getInt("hr");
+                    if (dow >= 0 && dow < 7 && hr >= 0 && hr < 24) {
+                        grid[dow][hr] = rs.getInt("cnt");
+                    }
+                },
+                Timestamp.from(start)
+            );
+        }
 
         List<List<Integer>> result = new ArrayList<>();
         for (int i = 0; i < 7; i++) {

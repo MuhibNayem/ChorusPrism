@@ -81,6 +81,12 @@ public class UserRepository {
         return jdbc.query("SELECT * FROM users WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?", rowMapper, tenantId, limit, offset);
     }
 
+    public @NonNull List<User> findByEmailGlobal(@NonNull String email) {
+        return jdbc.query(
+            "SELECT * FROM users WHERE LOWER(email) = LOWER(?) ORDER BY created_at ASC",
+            rowMapper, email);
+    }
+
     public long countByTenant(@NonNull String tenantId) {
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE tenant_id = ?", Long.class, tenantId);
         return count != null ? count : 0L;

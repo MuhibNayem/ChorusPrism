@@ -12,6 +12,7 @@ import com.chorus.observe.security.TenantContext;
 import com.chorus.observe.service.AuthenticationService;
 import com.chorus.observe.service.RoleService;
 import com.chorus.observe.service.UserService;
+import com.chorus.observe.service.WorkspaceLookupService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -59,6 +60,7 @@ public class AuthController {
     private final PasswordResetRepository passwordResetRepository;
     private final LoginAttemptService loginAttemptService;
     private final JwtTokenService jwtTokenService;
+    private final WorkspaceLookupService workspaceLookupService;
 
     public AuthController(@NonNull AuthenticationService authenticationService,
                           @NonNull UserService userService,
@@ -68,7 +70,8 @@ public class AuthController {
                           @NonNull RefreshTokenRepository refreshTokenRepository,
                           @NonNull PasswordResetRepository passwordResetRepository,
                           @NonNull LoginAttemptService loginAttemptService,
-                          @NonNull JwtTokenService jwtTokenService) {
+                          @NonNull JwtTokenService jwtTokenService,
+                          @NonNull WorkspaceLookupService workspaceLookupService) {
         this.authenticationService = authenticationService;
         this.userService = userService;
         this.tenantRepository = tenantRepository;
@@ -78,6 +81,7 @@ public class AuthController {
         this.passwordResetRepository = passwordResetRepository;
         this.loginAttemptService = loginAttemptService;
         this.jwtTokenService = jwtTokenService;
+        this.workspaceLookupService = workspaceLookupService;
     }
 
     @PostMapping("/login")
@@ -206,6 +210,14 @@ public class AuthController {
         ));
     }
 
+    @PostMapping("/workspace-lookup")
+    public ResponseEntity<?> workspaceLookup(@RequestBody @Valid WorkspaceLookupRequest request) {
+        workspaceLookupService.sendWorkspaceId(request.email());
+        // Always the same response — never reveal if the email is registered
+        return ResponseEntity.ok(Map.of("message",
+            "If that email is registered, workspace details have been sent."));
+    }
+
     @PostMapping("/forgot-password")
     public ResponseEntity<?> forgotPassword(@RequestBody @Valid ForgotPasswordRequest request) {
         // Look up user by email without credential check to generate reset token
@@ -302,6 +314,8 @@ public class AuthController {
         @NotBlank @Size(min = 8, max = 128) String password,
         @NotBlank String displayName
     ) {}
+
+    public record WorkspaceLookupRequest(@NotBlank @Email String email) {}
 
     public record ForgotPasswordRequest(
         @NotBlank String tenantId,

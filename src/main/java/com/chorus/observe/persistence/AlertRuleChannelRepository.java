@@ -44,6 +44,10 @@ public class AlertRuleChannelRepository {
         jdbc.update("DELETE FROM alert_rule_channels WHERE rule_id = ? AND channel_id = ?", ruleId, channelId);
     }
 
+    public void deleteByChannelId(@NonNull String channelId) {
+        jdbc.update("DELETE FROM alert_rule_channels WHERE channel_id = ?", channelId);
+    }
+
     private static final class AlertRuleChannelRowMapper implements RowMapper<AlertRuleChannel> {
         @Override
         public AlertRuleChannel mapRow(ResultSet rs, int rowNum) throws SQLException {

@@ -859,8 +859,10 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public AlertController alertController(@NonNull AlertService alertService) {
-        return new AlertController(alertService);
+    public AlertController alertController(AlertService alertService,
+                                           AlertRuleChannelRepository alertRuleChannelRepository,
+                                           NotificationChannelRepository notificationChannelRepository) {
+        return new AlertController(alertService, alertRuleChannelRepository, notificationChannelRepository);
     }
 
     @Bean
@@ -1144,6 +1146,7 @@ public class ChorusObserveAutoConfiguration {
                     "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/logout",
                     "/api/v1/auth/refresh", "/api/v1/auth/forgot-password",
                     "/api/v1/auth/reset-password", "/api/v1/auth/verify-email",
+                    "/api/v1/auth/workspace-lookup",
                     "/oauth2/**", "/login/oauth2/**", "/saml2/**", "/login/saml2/**"
                 ).permitAll()
                 .anyRequest().authenticated()
@@ -1201,8 +1204,22 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TenantSamlConfigRepository tenantSamlConfigRepository(@NonNull DataSource dataSource) {
-        return new TenantSamlConfigRepository(dataSource);
+    public TenantSamlConfigRepository tenantSamlConfigRepository(@NonNull DataSource dataSource, @NonNull ObjectMapper mapper) {
+        return new TenantSamlConfigRepository(dataSource, mapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.persistence.SsoSpKeyRepository ssoSpKeyRepository(@NonNull DataSource dataSource) {
+        return new com.chorus.observe.persistence.SsoSpKeyRepository(dataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.security.saml2.SpKeyService spKeyService(
+            com.chorus.observe.persistence.SsoSpKeyRepository ssoSpKeyRepository,
+            @NonNull CredentialEncryptionService credentialEncryptionService) {
+        return new com.chorus.observe.security.saml2.SpKeyService(ssoSpKeyRepository, credentialEncryptionService);
     }
 
     @Bean
@@ -1252,9 +1269,22 @@ public class ChorusObserveAutoConfiguration {
                                          @NonNull RefreshTokenRepository refreshTokenRepository,
                                          @NonNull PasswordResetRepository passwordResetRepository,
                                          @NonNull LoginAttemptService loginAttemptService,
-                                         @NonNull JwtTokenService jwtTokenService) {
+                                         @NonNull JwtTokenService jwtTokenService,
+                                         com.chorus.observe.service.WorkspaceLookupService workspaceLookupService) {
         return new AuthController(authenticationService, userService, tenantRepository, roleService,
-            tokenBlacklistRepository, refreshTokenRepository, passwordResetRepository, loginAttemptService, jwtTokenService);
+            tokenBlacklistRepository, refreshTokenRepository, passwordResetRepository,
+            loginAttemptService, jwtTokenService, workspaceLookupService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.service.WorkspaceLookupService workspaceLookupService(
+            @NonNull UserRepository userRepository,
+            @NonNull TenantRepository tenantRepository,
+            @NonNull ChorusObserveProperties properties,
+            com.chorus.observe.persistence.@org.jspecify.annotations.NonNull SmtpConfigRepository smtpConfigRepository) {
+        return new com.chorus.observe.service.WorkspaceLookupService(
+            userRepository, tenantRepository, properties, smtpConfigRepository);
     }
 
     @Bean
@@ -1332,8 +1362,9 @@ public class ChorusObserveAutoConfiguration {
     @ConditionalOnMissingBean
     public TenantSamlConfigRelyingPartyRegistrationRepository relyingPartyRegistrationRepository(
             @NonNull TenantSamlConfigRepository configRepository,
-            @NonNull MetadataResolver metadataResolver) {
-        return new TenantSamlConfigRelyingPartyRegistrationRepository(configRepository, metadataResolver);
+            @NonNull MetadataResolver metadataResolver,
+            com.chorus.observe.security.saml2.SpKeyService spKeyService) {
+        return new TenantSamlConfigRelyingPartyRegistrationRepository(configRepository, metadataResolver, spKeyService);
     }
 
     @Bean
@@ -1362,6 +1393,15 @@ public class ChorusObserveAutoConfiguration {
     @ConditionalOnMissingBean
     public SamlConfigController samlConfigController(@NonNull SamlConfigService samlConfigService) {
         return new SamlConfigController(samlConfigService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.api.SsoController ssoController(
+            @NonNull SamlConfigService samlConfigService,
+            @NonNull Oauth2ConfigService oauth2ConfigService,
+            com.chorus.observe.security.saml2.SpKeyService spKeyService) {
+        return new com.chorus.observe.api.SsoController(samlConfigService, oauth2ConfigService, spKeyService);
     }
 
     @Bean
@@ -1616,11 +1656,18 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public NotificationService notificationService(@NonNull NotificationChannelRepository notificationChannelRepository,
-                                                   @NonNull AlertRuleChannelRepository alertRuleChannelRepository,
-                                                   @NonNull AlertEventRepository alertEventRepository,
+    public com.chorus.observe.persistence.NotificationDeliveryRepository notificationDeliveryRepository(DataSource dataSource) {
+        return new com.chorus.observe.persistence.NotificationDeliveryRepository(dataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public NotificationService notificationService(NotificationChannelRepository notificationChannelRepository,
+                                                   AlertRuleChannelRepository alertRuleChannelRepository,
+                                                   AlertEventRepository alertEventRepository,
+                                                   com.chorus.observe.persistence.NotificationDeliveryRepository notificationDeliveryRepository,
                                                    @NonNull List<NotificationDispatcher> dispatchers) {
-        return new NotificationService(notificationChannelRepository, alertRuleChannelRepository, alertEventRepository, dispatchers);
+        return new NotificationService(notificationChannelRepository, alertRuleChannelRepository, alertEventRepository, notificationDeliveryRepository, dispatchers);
     }
 
     @Bean
@@ -1633,8 +1680,9 @@ public class ChorusObserveAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public NotificationChannelController notificationChannelController(@NonNull NotificationService notificationService) {
-        return new NotificationChannelController(notificationService);
+    public NotificationChannelController notificationChannelController(NotificationService notificationService,
+                                                                        AlertRuleChannelRepository alertRuleChannelRepository) {
+        return new NotificationChannelController(notificationService, alertRuleChannelRepository);
     }
 
     // ============================================================
@@ -1702,5 +1750,58 @@ public class ChorusObserveAutoConfiguration {
         String derived = agent.endsWith("/invoke") ? agent.replace("/invoke", "/embeddings") : agent + "/embeddings";
         LOG.info("Chorus Observe embeddings using derived endpoint: {} (set chorus.observe.eval.embedding-endpoint to override)", derived);
         return new HttpEmbeddingInvoker(mapper, derived);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.persistence.SmtpConfigRepository smtpConfigRepository(
+            @NonNull DataSource dataSource) {
+        return new com.chorus.observe.persistence.SmtpConfigRepository(dataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.api.SmtpConfigController smtpConfigController(
+            com.chorus.observe.persistence.SmtpConfigRepository smtpConfigRepository,
+            @NonNull UserRepository userRepository) {
+        return new com.chorus.observe.api.SmtpConfigController(smtpConfigRepository, userRepository);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.persistence.PiiConfigRepository piiConfigRepository(
+            @NonNull DataSource dataSource,
+            @NonNull ObjectMapper mapper) {
+        return new com.chorus.observe.persistence.PiiConfigRepository(dataSource, mapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.api.PiiController piiController(
+            com.chorus.observe.persistence.PiiConfigRepository piiConfigRepository,
+            @NonNull ObjectMapper mapper) {
+        return new com.chorus.observe.api.PiiController(piiConfigRepository, mapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.persistence.TenantSettingsRepository tenantSettingsRepository(
+            @NonNull DataSource dataSource) {
+        return new com.chorus.observe.persistence.TenantSettingsRepository(dataSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.api.PlatformController platformController(
+            @NonNull ChorusObserveProperties properties,
+            com.chorus.observe.persistence.TenantSettingsRepository tenantSettingsRepository) {
+        return new com.chorus.observe.api.PlatformController(properties, tenantSettingsRepository);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public com.chorus.observe.api.ApiKeyController apiKeyController(
+            @NonNull ApiKeyRepository apiKeyRepository) {
+        return new com.chorus.observe.api.ApiKeyController(apiKeyRepository);
     }
 }

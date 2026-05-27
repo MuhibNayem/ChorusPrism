@@ -9,6 +9,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -32,8 +33,11 @@ public class SamlConfigController {
     public ResponseEntity<TenantSamlConfig> create(@RequestBody @NonNull CreateRequest request) {
         TenantSamlConfig config = service.create(
             TenantContext.getTenantId(), request.providerName(), request.entityId(),
-            request.signOnUrl(), request.signingCertThumbprint(), request.metadataUrl(),
-            request.acsUrl(), request.defaultRole() != null ? request.defaultRole() : "VIEWER");
+            request.signOnUrl(),
+            request.signingCertThumbprint() != null ? request.signingCertThumbprint() : "",
+            request.metadataUrl(), request.acsUrl(),
+            request.defaultRole() != null ? request.defaultRole() : "VIEWER",
+            List.of(), List.of(), Map.of(), null, null);
         return ResponseEntity.ok(config);
     }
 

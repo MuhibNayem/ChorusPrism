@@ -16,7 +16,8 @@ public record ApiKey(
     @Nullable Instant expiresAt,
     @Nullable Instant lastUsedAt,
     @NonNull Instant createdAt,
-    @Nullable Instant revokedAt
+    @Nullable Instant revokedAt,
+    @Nullable String keyPrefix
 ) {
     public ApiKey {
         Objects.requireNonNull(keyHash);
@@ -24,6 +25,13 @@ public record ApiKey(
         Objects.requireNonNull(name);
         Objects.requireNonNull(scopes);
         Objects.requireNonNull(createdAt);
+    }
+
+    /** Backward-compat constructor without keyPrefix (for existing callers). */
+    public ApiKey(String keyHash, String tenantId, String userId, String name,
+                  List<String> scopes, Instant expiresAt, Instant lastUsedAt,
+                  Instant createdAt, Instant revokedAt) {
+        this(keyHash, tenantId, userId, name, scopes, expiresAt, lastUsedAt, createdAt, revokedAt, null);
     }
 
     public boolean isRevoked() {

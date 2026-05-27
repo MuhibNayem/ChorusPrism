@@ -94,4 +94,28 @@ class OtlpIngestionServiceTest {
         assertThat(calls.get(0).toolName()).isEqualTo("runTests");
         assertThat(calls.get(0).args()).isEqualTo("{\"module\":\"auth\"}");
     }
+
+    @Test
+    void shouldExtractLlmCallUsingFallbackModelKeys() {
+        OtlpIngestionService.OtlpSpan otlpSpan = new OtlpIngestionService.OtlpSpan(
+            "trace-1", "span-1", "llm.call", Instant.now(), Instant.now().plusMillis(1500),
+            0, 0,
+            Map.of(
+                "chorus.run_id", "run-1",
+                "gen_ai.system", "anthropic",
+                "model", "claude-3-5-sonnet",
+                "gen_ai.usage.input_tokens", 100,
+                "gen_ai.usage.output_tokens", 50,
+                "chorus.cost_usd", 0.001
+            ),
+            List.of(), ""
+        );
+
+        ingestionService.ingestSpans(List.of(otlpSpan));
+
+        List<LlmCall> calls = llmCallRepository.findByRunId("run-1");
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).provider()).isEqualTo("anthropic");
+        assertThat(calls.get(0).model()).isEqualTo("claude-3-5-sonnet");
+    }
 }

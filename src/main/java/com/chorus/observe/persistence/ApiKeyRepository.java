@@ -79,6 +79,10 @@ public class ApiKeyRepository {
             Timestamp.from(revokedAt), keyHash);
     }
 
+    public void saveKeyPrefix(@NonNull String keyHash, @NonNull String prefix) {
+        jdbc.update("UPDATE api_keys SET key_prefix = ? WHERE key_hash = ?", prefix, keyHash);
+    }
+
     private static final class ApiKeyRowMapper implements RowMapper<ApiKey> {
         private final ObjectMapper mapper;
 
@@ -96,7 +100,8 @@ public class ApiKeyRepository {
                     rs.getTimestamp("expires_at") != null ? rs.getTimestamp("expires_at").toInstant() : null,
                     rs.getTimestamp("last_used_at") != null ? rs.getTimestamp("last_used_at").toInstant() : null,
                     rs.getTimestamp("created_at").toInstant(),
-                    rs.getTimestamp("revoked_at") != null ? rs.getTimestamp("revoked_at").toInstant() : null
+                    rs.getTimestamp("revoked_at") != null ? rs.getTimestamp("revoked_at").toInstant() : null,
+                    rs.getString("key_prefix")
                 );
             } catch (JsonProcessingException e) {
                 throw new SQLException("Failed to deserialize JSON", e);

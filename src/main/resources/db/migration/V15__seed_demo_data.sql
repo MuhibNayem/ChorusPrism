@@ -7,7 +7,7 @@
 -- Tenant (required by retention_policies)
 -- ============================================================
 INSERT INTO tenants (tenant_id, name, config)
-VALUES ('tenant_demo', 'Demo Org', '{"plan":"enterprise","max_users":50}')
+VALUES ('tnt-c7ab1040eff7', 'Demo Org', '{"plan":"enterprise","max_users":50}')
 ON CONFLICT (tenant_id) DO NOTHING;
 
 -- ============================================================
@@ -61,9 +61,10 @@ BEGIN
         lc_id := 'lc_' || i || '_' || md5((i+2000)::text);
         tc_id := 'tc_' || i || '_' || md5((i+3000)::text);
 
-        INSERT INTO runs (run_id, framework, agent_id, model, start_time, end_time, status, tags, metadata, total_tokens, total_cost, latency_ms)
+        INSERT INTO runs (run_id, tenant_id, framework, agent_id, model, start_time, end_time, status, tags, metadata, total_tokens, total_cost, latency_ms)
         VALUES (
             r_id,
+            'tnt-c7ab1040eff7',
             frameworks[agent_idx],
             agents[agent_idx],
             models[agent_idx],
@@ -194,8 +195,8 @@ ON CONFLICT (event_id) DO NOTHING;
 -- ============================================================
 INSERT INTO retention_policies (policy_id, tenant_id, name, resource_type, retention_days, archive_enabled, enabled)
 VALUES
-    ('rp_runs',        'tenant_demo', 'Run traces',        'runs',          90,  TRUE,  TRUE),
-    ('rp_spans',       'tenant_demo', 'Span data',         'spans',         90,  TRUE,  TRUE),
-    ('rp_eval',        'tenant_demo', 'Eval results',      'eval_results',  180, FALSE, TRUE),
-    ('rp_alert_evts',  'tenant_demo', 'Alert events',      'alert_events',  30,  FALSE, TRUE)
+    ('rp_runs',        'tnt-c7ab1040eff7', 'Run traces',        'runs',          90,  TRUE,  TRUE),
+    ('rp_spans',       'tnt-c7ab1040eff7', 'Span data',         'spans',         90,  TRUE,  TRUE),
+    ('rp_eval',        'tnt-c7ab1040eff7', 'Eval results',      'eval_results',  180, FALSE, TRUE),
+    ('rp_alert_evts',  'tnt-c7ab1040eff7', 'Alert events',      'alert_events',  30,  FALSE, TRUE)
 ON CONFLICT (policy_id) DO NOTHING;

@@ -1,5 +1,6 @@
 package com.chorus.observe.security.saml2;
 
+import com.chorus.observe.model.RoleMapping;
 import com.chorus.observe.model.TenantSamlConfig;
 import com.chorus.observe.model.User;
 import com.chorus.observe.persistence.TenantSamlConfigRepository;
@@ -9,11 +10,15 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.saml2.provider.service.authentication.Saml2Authentication;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 
 import java.io.IOException;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class ChorusSaml2AuthenticationSuccessHandler implements AuthenticationSuccessHandler {
@@ -62,41 +67,104 @@ public class ChorusSaml2AuthenticationSuccessHandler implements AuthenticationSu
 
         String[] parts = registrationId.split("__", 2);
         if (parts.length != 2) {
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid registration ID");
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid registration ID format");
             return;
         }
         String tenantId = parts[0];
         String providerName = parts[1];
 
-        Object principal = samlAuth.getPrincipal();
-        String email = principal instanceof org.springframework.security.core.AuthenticatedPrincipal ap
-            ? ap.getName()
-            : principal.toString();
+        TenantSamlConfig config = configRepository.findByTenantIdAndProviderName(tenantId, providerName)
+            .orElse(null);
 
-        String displayName = principal instanceof org.springframework.security.core.AuthenticatedPrincipal ap
-            ? ap.getName()
-            : principal.toString();
+        Map<String, String> attrMap = config != null ? config.attributeMappings() : Map.of();
 
+        // Extract attributes using configurable claim names
+        Map<String, List<Object>> samlAttributes = extractSamlAttributes(samlAuth);
+        String emailClaim = attrMap.getOrDefault("email",
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress");
+        String nameClaim = attrMap.getOrDefault("name",
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/displayname");
+        String groupsClaim = attrMap.getOrDefault("groups", "groups");
+
+        String email = extractAttribute(samlAttributes, emailClaim);
+        if (email == null || email.isBlank()) {
+            // Fall back to NameID
+            email = samlAuth.getName();
+        }
         if (email == null || email.isBlank()) {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Email not provided by SAML IdP");
             return;
         }
 
-        String defaultRole = configRepository.findByTenantIdAndProviderName(tenantId, providerName)
-            .map(TenantSamlConfig::defaultRole)
-            .orElse("VIEWER");
+        // Enforce allowed email domains
+        if (config != null && !config.allowedDomains().isEmpty()) {
+            String domain = email.contains("@") ? email.substring(email.lastIndexOf('@') + 1) : "";
+            if (!isDomainAllowed(domain, config.allowedDomains())) {
+                response.sendError(HttpServletResponse.SC_FORBIDDEN,
+                    "Email domain '" + domain + "' is not allowed for this tenant");
+                return;
+            }
+        }
+
+        String displayName = extractAttribute(samlAttributes, nameClaim);
+        if (displayName == null || displayName.isBlank()) {
+            displayName = email;
+        }
+
+        // Determine role via role mappings, fall back to defaultRole
+        List<Object> groups = samlAttributes.getOrDefault(groupsClaim, List.of());
+        String role = resolveRole(groups, config, email);
 
         User user = jitProvisioningService.provisionOrLink(
-            tenantId, email, displayName, User.AuthSource.SAML, defaultRole);
+            tenantId, email, displayName, User.AuthSource.SAML, role);
 
-        String chorusJwt = jwtTokenService.generate(
-            tenantId, user.userId(), Set.of());
-        // Pass token in URL fragment (not sent to server) to prevent leakage in
-        // referrer headers, server access logs, and browser history sync.
+        String chorusJwt = jwtTokenService.generate(tenantId, user.userId(), Set.of());
+        // Pass token in URL fragment to prevent leakage in referrer headers and server logs.
         response.sendRedirect(frontendRedirectUrl + "#token=" + chorusJwt);
     }
 
-    private String extractAssertionId(@NonNull Saml2Authentication auth) {
+    private @Nullable String extractAttribute(@NonNull Map<String, List<Object>> attrs,
+                                               @NonNull String claimName) {
+        List<Object> values = attrs.get(claimName);
+        if (values != null && !values.isEmpty()) {
+            return values.getFirst().toString();
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private @NonNull Map<String, List<Object>> extractSamlAttributes(@NonNull Saml2Authentication auth) {
+        Object details = auth.getDetails();
+        if (details instanceof Map<?, ?> map) {
+            return (Map<String, List<Object>>) map;
+        }
+        // Extract from SAML2 authenticated principal attributes
+        if (auth.getPrincipal() instanceof org.springframework.security.saml2.provider.service.authentication.DefaultSaml2AuthenticatedPrincipal principal) {
+            return principal.getAttributes();
+        }
+        return Map.of();
+    }
+
+    private @NonNull String resolveRole(@NonNull List<Object> groups,
+                                         @Nullable TenantSamlConfig config,
+                                         @NonNull String email) {
+        if (config == null || config.roleMappings().isEmpty()) {
+            return config != null ? config.defaultRole() : "VIEWER";
+        }
+        List<String> groupStrings = groups.stream().map(Object::toString).toList();
+        for (RoleMapping mapping : config.roleMappings()) {
+            if (groupStrings.contains(mapping.value())) {
+                return mapping.role();
+            }
+        }
+        return config.defaultRole();
+    }
+
+    private boolean isDomainAllowed(@NonNull String domain, @NonNull List<String> allowedDomains) {
+        return allowedDomains.stream().anyMatch(d -> d.equalsIgnoreCase(domain));
+    }
+
+    private @Nullable String extractAssertionId(@NonNull Saml2Authentication auth) {
         Object details = auth.getDetails();
         if (details instanceof org.opensaml.saml.saml2.core.Assertion assertion) {
             return assertion.getID();
@@ -104,9 +172,8 @@ public class ChorusSaml2AuthenticationSuccessHandler implements AuthenticationSu
         return null;
     }
 
-    private String extractRegistrationId(@NonNull HttpServletRequest request) {
+    private @Nullable String extractRegistrationId(@NonNull HttpServletRequest request) {
         String uri = request.getRequestURI();
-        // SAML2 SSO endpoint pattern: /login/saml2/sso/{registrationId}
         String prefix = "/login/saml2/sso/";
         int idx = uri.indexOf(prefix);
         if (idx >= 0) {

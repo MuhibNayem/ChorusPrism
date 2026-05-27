@@ -2,7 +2,11 @@ package com.chorus.observe.api;
 
 import com.chorus.observe.model.AlertEvent;
 import com.chorus.observe.model.AlertRule;
+import com.chorus.observe.model.AlertRuleChannel;
+import com.chorus.observe.model.NotificationChannel;
 import com.chorus.observe.model.PagedResult;
+import com.chorus.observe.persistence.AlertRuleChannelRepository;
+import com.chorus.observe.persistence.NotificationChannelRepository;
 import com.chorus.observe.service.AlertService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -26,9 +30,15 @@ import java.util.Optional;
 public class AlertController {
 
     private final AlertService alertService;
+    private final AlertRuleChannelRepository alertRuleChannelRepository;
+    private final NotificationChannelRepository notificationChannelRepository;
 
-    public AlertController(@NonNull AlertService alertService) {
+    public AlertController(@NonNull AlertService alertService,
+                           @NonNull AlertRuleChannelRepository alertRuleChannelRepository,
+                           @NonNull NotificationChannelRepository notificationChannelRepository) {
         this.alertService = Objects.requireNonNull(alertService);
+        this.alertRuleChannelRepository = Objects.requireNonNull(alertRuleChannelRepository);
+        this.notificationChannelRepository = Objects.requireNonNull(notificationChannelRepository);
     }
 
     @PostMapping("/rules")
@@ -88,6 +98,35 @@ public class AlertController {
     @PostMapping("/events/{eventId}/resolve")
     public ResponseEntity<Void> resolveEvent(@PathVariable @NonNull String eventId) {
         alertService.resolveEvent(eventId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // -----------------------------------------------------------------------
+    // Channel link / unlink
+    // -----------------------------------------------------------------------
+
+    @GetMapping("/rules/{ruleId}/channels")
+    public ResponseEntity<List<NotificationChannel>> listLinkedChannels(@PathVariable @NonNull String ruleId) {
+        List<AlertRuleChannel> links = alertRuleChannelRepository.findByRuleId(ruleId);
+        List<NotificationChannel> channels = links.stream()
+            .map(link -> notificationChannelRepository.findById(link.channelId()).orElse(null))
+            .filter(Objects::nonNull)
+            .toList();
+        return ResponseEntity.ok(channels);
+    }
+
+    @PostMapping("/rules/{ruleId}/channels/{channelId}")
+    public ResponseEntity<Void> linkChannel(@PathVariable @NonNull String ruleId,
+                                             @PathVariable @NonNull String channelId) {
+        AlertRuleChannel link = new AlertRuleChannel(ruleId, channelId, Instant.now());
+        alertRuleChannelRepository.save(link);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/rules/{ruleId}/channels/{channelId}")
+    public ResponseEntity<Void> unlinkChannel(@PathVariable @NonNull String ruleId,
+                                               @PathVariable @NonNull String channelId) {
+        alertRuleChannelRepository.deleteByRuleIdAndChannelId(ruleId, channelId);
         return ResponseEntity.noContent().build();
     }
 

@@ -60,13 +60,24 @@ public class RetentionPolicyController {
      * Frontend-facing retention policy summary.
      * Maps resource_type → tier label, retentionDays → human duration, and computes pct.
      */
-    public record RetentionPolicySummary(String tier, String duration, double pct) {
+    public record RetentionPolicySummary(
+        String policyId,
+        String tier,
+        String resourceType,
+        int retentionDays,
+        String duration,
+        double pct,
+        boolean archiveEnabled,
+        String archiveLocation
+    ) {
 
         static RetentionPolicySummary from(RetentionPolicy p) {
             String tier = toTierLabel(p.resourceType(), p.name());
             String duration = toDurationLabel(p.retentionDays());
             double pct = Math.min(1.0, (double) p.retentionDays() / MAX_RETENTION_DAYS);
-            return new RetentionPolicySummary(tier, duration, pct);
+            return new RetentionPolicySummary(
+                p.policyId(), tier, p.resourceType(), p.retentionDays(),
+                duration, pct, p.archiveEnabled(), p.archiveLocation());
         }
 
         private static String toTierLabel(String resourceType, String name) {

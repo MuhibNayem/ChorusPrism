@@ -27,6 +27,7 @@ public final class WebhookDispatcher implements NotificationDispatcher {
         this.mapper = Objects.requireNonNull(mapper);
         this.httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
+            .followRedirects(HttpClient.Redirect.NEVER)
             .build();
     }
 
@@ -45,7 +46,7 @@ public final class WebhookDispatcher implements NotificationDispatcher {
         String webhookUrl = urlObj.toString();
 
         try {
-            UrlValidator.validate(webhookUrl);
+            UrlValidator.validateWebhook(webhookUrl);
         } catch (IllegalArgumentException e) {
             LOG.error("Blocked SSRF attempt via webhook channel {}: {}", channel.channelId(), e.getMessage());
             return;

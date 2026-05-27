@@ -94,6 +94,9 @@ dependencies {
     // Structured logging
     implementation("net.logstash.logback:logstash-logback-encoder:8.0")
 
+    // Cryptography (for self-signed cert generation)
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78")
+
     // Null safety
     compileOnly("org.jspecify:jspecify:1.0.0")
 

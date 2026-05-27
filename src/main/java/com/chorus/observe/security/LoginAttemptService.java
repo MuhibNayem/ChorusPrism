@@ -66,7 +66,7 @@ public class LoginAttemptService {
                     window_start    = CASE WHEN window_start < ? THEN ? ELSE window_start END,
                     locked_until    = CASE
                                         WHEN (CASE WHEN window_start < ? THEN 1 ELSE attempt_count + 1 END) >= ?
-                                        THEN ?
+                                        THEN CAST(? AS timestamptz)
                                         ELSE NULL
                                       END,
                     last_attempt_at = ?

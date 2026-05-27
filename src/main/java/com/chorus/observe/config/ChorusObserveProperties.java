@@ -21,6 +21,7 @@ public class ChorusObserveProperties {
     private Jwt jwt = new Jwt();
     private Sampling sampling = new Sampling();
     private Frontend frontend = new Frontend();
+    private Smtp smtp = new Smtp();
     private Export export = new Export();
     private Pricing pricing = new Pricing();
     private IngestionQueue ingestionQueue = new IngestionQueue();
@@ -45,6 +46,9 @@ public class ChorusObserveProperties {
 
     public Frontend getFrontend() { return frontend; }
     public void setFrontend(Frontend frontend) { this.frontend = frontend; }
+
+    public Smtp getSmtp() { return smtp; }
+    public void setSmtp(Smtp smtp) { this.smtp = smtp; }
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -228,6 +232,29 @@ public class ChorusObserveProperties {
 
         public String getUrl() { return url; }
         public void setUrl(String url) { this.url = url; }
+    }
+
+    public static class Smtp {
+        private String host = "";
+        private int port = 587;
+        private String username = "";
+        private String password = "";
+        private String from = "noreply@chorus.observe";
+        private boolean useTls = true;
+
+        public String getHost() { return host; }
+        public void setHost(String host) { this.host = host; }
+        public int getPort() { return port; }
+        public void setPort(int port) { this.port = port; }
+        public String getUsername() { return username; }
+        public void setUsername(String username) { this.username = username; }
+        public String getPassword() { return password; }
+        public void setPassword(String password) { this.password = password; }
+        public String getFrom() { return from; }
+        public void setFrom(String from) { this.from = from; }
+        public boolean isUseTls() { return useTls; }
+        public void setUseTls(boolean useTls) { this.useTls = useTls; }
+        public boolean isConfigured() { return host != null && !host.isBlank(); }
     }
 
     public static class Export {

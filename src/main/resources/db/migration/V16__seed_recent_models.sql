@@ -50,9 +50,10 @@ BEGIN
         sp_id := 'sp_r_'  || i || '_' || md5((i + 11000)::text);
         lc_id := 'lc_r_'  || i || '_' || md5((i + 12000)::text);
 
-        INSERT INTO runs (run_id, framework, agent_id, model, start_time, end_time, status, tags, metadata, total_tokens, total_cost, latency_ms)
+        INSERT INTO runs (run_id, tenant_id, framework, agent_id, model, start_time, end_time, status, tags, metadata, total_tokens, total_cost, latency_ms)
         VALUES (
             r_id,
+            'tnt-c7ab1040eff7',
             frameworks[a_idx],
             agents[a_idx],
             recent_models[m_idx],

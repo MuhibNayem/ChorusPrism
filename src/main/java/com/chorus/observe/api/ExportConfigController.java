@@ -39,7 +39,19 @@ public class ExportConfigController {
     @PostMapping
     public ResponseEntity<?> saveConfig(@RequestBody Map<String, Object> request) {
         String tenantId = TenantContext.getTenantId();
-        String configId = (String) request.getOrDefault("configId", UUID.randomUUID().toString());
+
+        // Load existing config to preserve credentials when placeholder masks are submitted
+        ExportConfig existing = exportConfigRepository.findByTenantAndType(tenantId, ExportConfig.DestinationType.S3)
+            .orElse(null);
+        String configId = existing != null ? existing.configId()
+            : (String) request.getOrDefault("configId", UUID.randomUUID().toString());
+
+        String accessKeyId = resolveCredential(
+            (String) request.get("accessKeyId"),
+            existing != null ? existing.accessKeyId() : null);
+        String secretAccessKey = resolveCredential(
+            (String) request.get("secretAccessKey"),
+            existing != null ? existing.secretAccessKey() : null);
 
         ExportConfig config = new ExportConfig(
             configId,
@@ -48,28 +60,52 @@ public class ExportConfigController {
             (String) request.get("endpointUrl"),
             (String) request.getOrDefault("region", "us-east-1"),
             (String) request.get("bucketName"),
-            encryptionService.encrypt((String) request.get("accessKeyId")),
-            encryptionService.encrypt((String) request.get("secretAccessKey")),
+            encryptionService.encrypt(accessKeyId != null ? accessKeyId : ""),
+            encryptionService.encrypt(secretAccessKey != null ? secretAccessKey : ""),
             (String) request.getOrDefault("pathPrefix", ""),
             (Boolean) request.getOrDefault("enabled", true),
-            Instant.now(),
+            existing != null ? existing.createdAt() : Instant.now(),
             Instant.now()
         );
         exportConfigRepository.save(config);
         return ResponseEntity.ok(maskSecrets(config));
     }
 
+    /**
+     * Returns the existing encrypted credential when the submitted value is a display mask placeholder
+     * (format: 4chars + *** + 4chars, or literal "***"). Otherwise encrypts the new submitted value.
+     */
+    private String resolveCredential(String submitted, String existingEncrypted) {
+        if (isMaskPlaceholder(submitted)) {
+            return existingEncrypted != null ? encryptionService.decrypt(existingEncrypted) : "";
+        }
+        return submitted != null ? submitted : "";
+    }
+
+    private boolean isMaskPlaceholder(String value) {
+        if (value == null) return false;
+        if ("***".equals(value)) return true;
+        // Mask format is exactly: 4 chars + *** + 4 chars = 11 chars total
+        return value.length() == 11 && value.substring(4, 7).equals("***");
+    }
+
     private ExportConfig maskSecrets(ExportConfig config) {
         return new ExportConfig(
             config.configId(), config.tenantId(), config.destinationType(),
             config.endpointUrl(), config.region(), config.bucketName(),
-            mask(config.accessKeyId()), mask(config.secretAccessKey()),
+            maskDecrypted(config.accessKeyId()), maskDecrypted(config.secretAccessKey()),
             config.pathPrefix(), config.enabled(), config.createdAt(), config.updatedAt()
         );
     }
 
-    private String mask(String value) {
-        if (value == null || value.length() < 8) return "***";
-        return value.substring(0, 4) + "***" + value.substring(value.length() - 4);
+    private String maskDecrypted(String encryptedValue) {
+        if (encryptedValue == null || encryptedValue.isBlank()) return "";
+        try {
+            String plaintext = encryptionService.decrypt(encryptedValue);
+            if (plaintext.length() < 8) return "***";
+            return plaintext.substring(0, 4) + "***" + plaintext.substring(plaintext.length() - 4);
+        } catch (Exception e) {
+            return "***";
+        }
     }
 }
