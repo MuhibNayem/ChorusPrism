@@ -123,26 +123,64 @@ DECLARE
     r RECORD;
     i INT := 1;
 BEGIN
-    FOR r IN (SELECT run_id, agent_id, start_time FROM runs LIMIT 50) LOOP
+    FOR r IN (SELECT run_id, agent_id, start_time FROM runs) LOOP
+        -- Node 1: RAG Query
         INSERT INTO provenance_entries (
             entry_id, run_id, agent_id, decision_type, input_state, 
             reasoning, output, parent_ids, timestamp, metadata, tenant_id
         )
         VALUES (
-            'prov_' || i || '_' || md5(r.run_id),
+            'prov_rag_' || r.run_id,
             r.run_id,
             r.agent_id,
-            CASE WHEN i % 3 = 0 THEN 'RAG_QUERY'
-                 WHEN i % 3 = 1 THEN 'TOOL_EXECUTION'
-                 ELSE 'MODEL_CALL' END,
+            'RAG_QUERY',
             '{"user_prompt": "Run diagnostic check for system state", "session_id": "sess_' || i || '"}',
-            'Reasoning step ' || i || ': Analyzed state vectors, selected agent ' || r.agent_id || ' to resolve prompt using model and active context.',
-            '{"status": "resolved", "action_taken": "analyzed logs", "confidence": ' || ROUND((0.8 + random() * 0.19)::NUMERIC, 2)::TEXT || '}',
-            '[]',
+            'Reasoning step ' || i || '.1: Querying semantic index for similar runs and agent patterns.',
+            '{"status": "retrieved", "documents_found": 3, "score": 0.94}',
+            '[]'::jsonb,
             r.start_time,
-            '{"latency_ms": 120}',
+            '{"latency_ms": 45}'::jsonb,
             'tnt-c7ab1040eff7'
         ) ON CONFLICT (entry_id) DO NOTHING;
+
+        -- Node 2: Model Call (depends on Node 1)
+        INSERT INTO provenance_entries (
+            entry_id, run_id, agent_id, decision_type, input_state, 
+            reasoning, output, parent_ids, timestamp, metadata, tenant_id
+        )
+        VALUES (
+            'prov_model_' || r.run_id,
+            r.run_id,
+            r.agent_id,
+            'MODEL_CALL',
+            '{"retrieved_context": "Found 3 diagnostic templates", "prompt": "Process state vector"}',
+            'Reasoning step ' || i || '.2: Synthesizing context, calling model to determine system resolution step.',
+            '{"status": "resolved", "action_required": "execute_system_flush", "confidence": 0.89}',
+            ('["prov_rag_' || r.run_id || '"]')::jsonb,
+            r.start_time + INTERVAL '50 milliseconds',
+            '{"latency_ms": 120}'::jsonb,
+            'tnt-c7ab1040eff7'
+        ) ON CONFLICT (entry_id) DO NOTHING;
+
+        -- Node 3: Tool Execution (depends on Node 2)
+        INSERT INTO provenance_entries (
+            entry_id, run_id, agent_id, decision_type, input_state, 
+            reasoning, output, parent_ids, timestamp, metadata, tenant_id
+        )
+        VALUES (
+            'prov_tool_' || r.run_id,
+            r.run_id,
+            r.agent_id,
+            'TOOL_EXECUTION',
+            '{"action": "execute_system_flush", "parameters": {}}',
+            'Reasoning step ' || i || '.3: Executing system flush tool as determined by the model call.',
+            '{"status": "success", "bytes_flushed": 4096}',
+            ('["prov_model_' || r.run_id || '"]')::jsonb,
+            r.start_time + INTERVAL '200 milliseconds',
+            '{"latency_ms": 85}'::jsonb,
+            'tnt-c7ab1040eff7'
+        ) ON CONFLICT (entry_id) DO NOTHING;
+
         i := i + 1;
     END LOOP;
 END $$;
