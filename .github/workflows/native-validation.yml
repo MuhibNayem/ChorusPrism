@@ -70,7 +70,7 @@ jobs:
           PORT=28080
           START_NS=$(date +%s%N)
           "$BINARY" --server.port=$PORT \
-            --spring.datasource.url=jdbc:h2:mem:observe_native \
+            --spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration \
             --spring.flyway.enabled=false \
             > /tmp/observe-native.log 2>&1 &
           PID=$!

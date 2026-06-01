@@ -2,6 +2,7 @@ plugins {
     id("java-library")
     id("io.spring.dependency-management") version "1.1.7"
     id("org.springframework.boot") version "4.0.0"
+    id("org.graalvm.buildtools.native") version "0.10.6"
     id("com.vanniktech.maven.publish") version "0.33.0"
 }
 
