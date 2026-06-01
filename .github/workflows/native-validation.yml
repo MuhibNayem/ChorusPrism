@@ -1,0 +1,116 @@
+name: GraalVM Native Image Validation
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'chorus-observe-server/**'
+      - '.github/workflows/observe-native-validation.yml'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  pull_request:
+    branches: ['**']
+    paths:
+      - 'chorus-observe-server/**'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-validate:
+    name: Validate Native Compilation
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chorus-observe-server
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM JDK 25
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Grant execute permission for Gradle
+        run: chmod +x gradlew
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-observe-native-${{ hashFiles('chorus-observe-server/**/*.gradle*', 'chorus-observe-server/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-observe-native-
+
+      - name: Run Spring Boot AOT Processing
+        run: ./gradlew processAot --no-daemon
+
+      - name: Compile Native Binary
+        run: ./gradlew nativeCompile --no-daemon
+        timeout-minutes: 25
+
+      - name: Verify Native Executable & Startup Health
+        run: |
+          BINARY="build/native/nativeCompile/app"
+          if [ ! -f "$BINARY" ]; then
+            echo "ERROR: Native binary not found at $BINARY"
+            find build/ -name "app" -o -name "chorus-observe-server" 2>/dev/null || true
+            exit 1
+          fi
+          chmod +x "$BINARY"
+          PORT=28080
+          START_NS=$(date +%s%N)
+          "$BINARY" --server.port=$PORT \
+            --spring.datasource.url=jdbc:h2:mem:observe_native \
+            --spring.flyway.enabled=false \
+            > /tmp/observe-native.log 2>&1 &
+          PID=$!
+
+          READY=false
+          for i in $(seq 1 80); do
+            if curl -sf "http://localhost:${PORT}/actuator/health" > /dev/null 2>&1; then
+              READY=true
+              break
+            fi
+            if ! kill -0 $PID 2>/dev/null; then
+              echo "ERROR: Native process exited prematurely"
+              cat /tmp/observe-native.log
+              exit 1
+            fi
+            sleep 0.25
+          done
+
+          END_NS=$(date +%s%N)
+          ELAPSED_MS=$(( (END_NS - START_NS) / 1000000 ))
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+
+          if [ "$READY" = "false" ]; then
+            echo "ERROR: Application health endpoint did not respond within 20 seconds"
+            cat /tmp/observe-native.log
+            exit 1
+          fi
+
+          echo "Native binary started successfully in ${ELAPSED_MS}ms"
+
+      - name: Upload Verified Native Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: chorus-observe-server-native-linux-amd64
+          path: chorus-observe-server/build/native/nativeCompile/app
+          if-no-files-found: error

@@ -1,0 +1,105 @@
+name: Release to Maven Central
+
+on:
+  push:
+    tags:
+      - 'observe-v*'
+
+jobs:
+  release:
+    name: Publish Observe Server
+    runs-on: ubuntu-latest
+    environment: maven-central
+    defaults:
+      run:
+        working-directory: chorus-observe-server
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'oracle'
+          cache: 'gradle'
+
+      - name: Verify secrets are present
+        run: |
+          MISSING=0
+          if [ -z "$MAVEN_CENTRAL_USERNAME" ]; then
+            echo "::error::Secret MAVEN_CENTRAL_USERNAME is not set"
+            MISSING=$((MISSING + 1))
+          fi
+          if [ -z "$MAVEN_CENTRAL_PASSWORD" ]; then
+            echo "::error::Secret MAVEN_CENTRAL_PASSWORD is not set"
+            MISSING=$((MISSING + 1))
+          fi
+          if [ -z "$SIGNING_KEY_ID" ]; then
+            echo "::error::Secret SIGNING_KEY_ID is not set"
+            MISSING=$((MISSING + 1))
+          fi
+          if [ -z "$SIGNING_PASSWORD" ]; then
+            echo "::error::Secret SIGNING_PASSWORD is not set"
+            MISSING=$((MISSING + 1))
+          fi
+          if [ -z "$SIGNING_SECRET_KEY" ]; then
+            echo "::error::Secret SIGNING_SECRET_KEY is not set"
+            echo "::error::Generate it with: gpg --armor --export-secret-keys KEY_ID | base64 -w0"
+            MISSING=$((MISSING + 1))
+          fi
+          if [ $MISSING -gt 0 ]; then
+            echo ""
+            echo "$MISSING secret(s) missing. Add them at:"
+            echo "  https://github.com/$GITHUB_REPOSITORY/settings/environments"
+            exit 1
+          fi
+          echo "All required secrets are present."
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          SIGNING_SECRET_KEY: ${{ secrets.SIGNING_SECRET_KEY }}
+
+      - name: Prepare signing key
+        run: |
+          # The secret may be base64-encoded (old docs) or raw armored key.
+          # Try base64 decode first; fall back to using as-is.
+          if echo "$SIGNING_SECRET_KEY" | base64 -d > /tmp/signing-key.asc 2>/dev/null; then
+            echo "Secret key was base64-encoded; decoded successfully."
+          else
+            echo "Secret key was not base64-encoded; using as-is."
+            echo "$SIGNING_SECRET_KEY" > /tmp/signing-key.asc
+          fi
+          {
+            echo "SIGNING_KEY<<EOF"
+            cat /tmp/signing-key.asc
+            echo ""
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+        env:
+          SIGNING_SECRET_KEY: ${{ secrets.SIGNING_SECRET_KEY }}
+
+      - name: Extract version from tag
+        run: |
+          VERSION=${GITHUB_REF_NAME#observe-v}
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Publishing version: $VERSION"
+
+      - name: Grant execute permission for Gradle
+        run: chmod +x gradlew
+
+      - name: Build and test
+        run: ./gradlew test --no-daemon -PreleaseVersion=${{ env.RELEASE_VERSION }}
+
+      - name: Publish to Maven Central
+        run: ./gradlew publishToMavenCentral --no-daemon -PreleaseVersion=${{ env.RELEASE_VERSION }}
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ env.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}

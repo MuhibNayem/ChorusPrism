@@ -1,0 +1,89 @@
+name: Java CI — Observe Server
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'chorus-observe-server/**'
+      - '.github/workflows/observe-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'chorus-observe-server/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chorus-observe-server
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [25]
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: chorus_observe
+          POSTGRES_USER: chorus
+          POSTGRES_PASSWORD: chorus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'oracle'
+
+      - name: Grant execute permission for Gradle
+        run: chmod +x gradlew
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-observe-${{ hashFiles('chorus-observe-server/**/*.gradle*', 'chorus-observe-server/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-observe-
+
+      - name: Compile
+        run: ./gradlew compileJava --no-daemon
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/chorus_observe
+          SPRING_DATASOURCE_USERNAME: chorus
+          SPRING_DATASOURCE_PASSWORD: chorus
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/chorus_observe
+          SPRING_DATASOURCE_USERNAME: chorus
+          SPRING_DATASOURCE_PASSWORD: chorus
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: observe-test-results-jdk-${{ matrix.java }}
+          path: |
+            chorus-observe-server/build/reports/tests/
+            chorus-observe-server/build/test-results/
+          if-no-files-found: ignore
