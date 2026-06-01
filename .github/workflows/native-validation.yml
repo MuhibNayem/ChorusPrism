@@ -5,7 +5,7 @@ on:
     branches: [main, develop]
     paths:
       - 'chorus-observe-server/**'
-      - '.github/workflows/observe-native-validation.yml'
+      - '.github/workflows/native-validation.yml'
   pull_request:
     branches: ['**']
     paths:

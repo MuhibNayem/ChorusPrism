@@ -5,7 +5,7 @@ on:
     branches: [main, develop]
     paths:
       - 'chorus-observe-server/**'
-      - '.github/workflows/observe-ci.yml'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
     paths:
