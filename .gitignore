@@ -40,3 +40,4 @@ docker-compose.override.yml
 
 # Runtime data
 exports/
+bin/

@@ -8,6 +8,7 @@ import com.chorus.observe.persistence.InMemoryAlertEventRepository;
 import com.chorus.observe.persistence.InMemoryAlertRuleChannelRepository;
 import com.chorus.observe.persistence.InMemoryAlertRuleRepository;
 import com.chorus.observe.persistence.InMemoryNotificationChannelRepository;
+import com.chorus.observe.persistence.InMemoryNotificationDeliveryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +34,7 @@ class AlertRetrySchedulerTest {
         alertRuleRepository = new InMemoryAlertRuleRepository();
         InMemoryNotificationChannelRepository channelRepo = new InMemoryNotificationChannelRepository();
         InMemoryAlertRuleChannelRepository ruleChannelRepo = new InMemoryAlertRuleChannelRepository();
+        InMemoryNotificationDeliveryRepository deliveryRepo = new InMemoryNotificationDeliveryRepository();
         dispatchCount = new AtomicInteger(0);
 
         NotificationDispatcher countingDispatcher = new NotificationDispatcher() {
@@ -48,7 +50,7 @@ class AlertRetrySchedulerTest {
         };
 
         notificationService = new NotificationService(
-            channelRepo, ruleChannelRepo, alertEventRepository, List.of(countingDispatcher)
+            channelRepo, ruleChannelRepo, alertEventRepository, deliveryRepo, List.of(countingDispatcher)
         );
         scheduler = new AlertRetryScheduler(alertEventRepository, alertRuleRepository, notificationService);
 

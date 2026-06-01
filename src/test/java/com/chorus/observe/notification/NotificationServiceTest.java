@@ -16,6 +16,7 @@ class NotificationServiceTest {
     private InMemoryNotificationChannelRepository channelRepository;
     private InMemoryAlertRuleChannelRepository ruleChannelRepository;
     private InMemoryAlertEventRepository alertEventRepository;
+    private InMemoryNotificationDeliveryRepository deliveryRepository;
     private NotificationService notificationService;
 
     @BeforeEach
@@ -23,6 +24,7 @@ class NotificationServiceTest {
         channelRepository = new InMemoryNotificationChannelRepository();
         ruleChannelRepository = new InMemoryAlertRuleChannelRepository();
         alertEventRepository = new InMemoryAlertEventRepository();
+        deliveryRepository = new InMemoryNotificationDeliveryRepository();
     }
 
     @Test
@@ -41,7 +43,7 @@ class NotificationServiceTest {
         };
 
         notificationService = new NotificationService(
-            channelRepository, ruleChannelRepository, alertEventRepository, List.of(failingDispatcher)
+            channelRepository, ruleChannelRepository, alertEventRepository, deliveryRepository, List.of(failingDispatcher)
         );
 
         AlertRule rule = new AlertRule("rule-1", "Test", "x > 1", 1.0,
@@ -82,7 +84,7 @@ class NotificationServiceTest {
         };
 
         notificationService = new NotificationService(
-            channelRepository, ruleChannelRepository, alertEventRepository, List.of(successDispatcher)
+            channelRepository, ruleChannelRepository, alertEventRepository, deliveryRepository, List.of(successDispatcher)
         );
 
         AlertRule rule = new AlertRule("rule-1", "Test", "x > 1", 1.0,
@@ -108,7 +110,7 @@ class NotificationServiceTest {
     @Test
     void shouldNotThrowWhenNoChannelsLinked() {
         notificationService = new NotificationService(
-            channelRepository, ruleChannelRepository, alertEventRepository, List.of()
+            channelRepository, ruleChannelRepository, alertEventRepository, deliveryRepository, List.of()
         );
 
         AlertRule rule = new AlertRule("rule-1", "Test", "x > 1", 1.0,
