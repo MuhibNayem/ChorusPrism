@@ -142,6 +142,10 @@ graalvmNative {
         named("main") {
             imageName.set("app")
             mainClass.set("com.chorus.observe.ChorusObserveApplication")
+            // This project is published as a `java-library` (no `application` plugin),
+            // so the native binary's kind is not pinned to an executable by convention.
+            // Force a standalone executable so `nativeCompile` emits `app`, not `app.so`.
+            sharedLibrary.set(false)
             buildArgs.addAll(
                 "--initialize-at-build-time=ch.qos.logback",
                 "--initialize-at-build-time=ch.qos.logback.classic.Logger",
