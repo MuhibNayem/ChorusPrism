@@ -136,3 +136,20 @@ tasks.withType<Javadoc> {
 tasks.withType<org.springframework.boot.gradle.tasks.bundling.BootJar> {
     archiveFileName.set("app.jar")
 }
+
+graalvmNative {
+    binaries {
+        named("main") {
+            imageName.set("app")
+            mainClass.set("com.chorus.observe.ChorusObserveApplication")
+            buildArgs.addAll(
+                "--initialize-at-build-time=ch.qos.logback",
+                "--initialize-at-build-time=ch.qos.logback.classic.Logger",
+                "--initialize-at-build-time=ch.qos.logback.classic.LoggerContext",
+                "--initialize-at-build-time=org.slf4j",
+                "--initialize-at-build-time=org.slf4j.LoggerFactory",
+                "-H:+UnlockExperimentalVMOptions"
+            )
+        }
+    }
+}
