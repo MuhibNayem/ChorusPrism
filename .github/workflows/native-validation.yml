@@ -6,20 +6,10 @@ on:
     paths:
       - 'chorus-observe-server/**'
       - '.github/workflows/observe-native-validation.yml'
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.gitignore'
-      - 'LICENSE'
   pull_request:
     branches: ['**']
     paths:
       - 'chorus-observe-server/**'
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.gitignore'
-      - 'LICENSE'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
