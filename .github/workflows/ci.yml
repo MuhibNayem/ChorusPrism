@@ -4,12 +4,16 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - 'chorus-observe-server/**'
+      - 'src/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'chorus-observe-server/**'
+      - 'src/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: chorus-observe-server
+        working-directory: .
     strategy:
       fail-fast: false
       matrix:
@@ -60,7 +64,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-observe-${{ hashFiles('chorus-observe-server/**/*.gradle*', 'chorus-observe-server/**/gradle-wrapper.properties') }}
+          key: ${{ runner.os }}-gradle-observe-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-observe-
 
@@ -84,6 +88,6 @@ jobs:
         with:
           name: observe-test-results-jdk-${{ matrix.java }}
           path: |
-            chorus-observe-server/build/reports/tests/
-            chorus-observe-server/build/test-results/
+            build/reports/tests/
+            build/test-results/
           if-no-files-found: ignore

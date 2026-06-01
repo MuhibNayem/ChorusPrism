@@ -12,7 +12,7 @@ jobs:
     environment: maven-central
     defaults:
       run:
-        working-directory: chorus-observe-server
+        working-directory: .
 
     steps:
       - uses: actions/checkout@v4
@@ -41,10 +41,7 @@ jobs:
             echo "::error::Secret SIGNING_KEY_ID is not set"
             MISSING=$((MISSING + 1))
           fi
-          if [ -z "$SIGNING_PASSWORD" ]; then
-            echo "::error::Secret SIGNING_PASSWORD is not set"
-            MISSING=$((MISSING + 1))
-          fi
+          # SIGNING_PASSWORD is allowed to be empty (key with no passphrase)
           if [ -z "$SIGNING_SECRET_KEY" ]; then
             echo "::error::Secret SIGNING_SECRET_KEY is not set"
             echo "::error::Generate it with: gpg --armor --export-secret-keys KEY_ID | base64 -w0"

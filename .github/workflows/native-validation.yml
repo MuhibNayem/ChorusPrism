@@ -4,12 +4,16 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - 'chorus-observe-server/**'
+      - 'src/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
       - '.github/workflows/native-validation.yml'
   pull_request:
     branches: ['**']
     paths:
-      - 'chorus-observe-server/**'
+      - 'src/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: chorus-observe-server
+        working-directory: .
 
     steps:
       - name: Checkout Code
@@ -43,7 +47,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-observe-native-${{ hashFiles('chorus-observe-server/**/*.gradle*', 'chorus-observe-server/**/gradle-wrapper.properties') }}
+          key: ${{ runner.os }}-gradle-observe-native-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-observe-native-
 
@@ -102,5 +106,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: chorus-observe-server-native-linux-amd64
-          path: chorus-observe-server/build/native/nativeCompile/app
+          path: build/native/nativeCompile/app
           if-no-files-found: error
