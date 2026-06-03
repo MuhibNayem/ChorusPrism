@@ -88,7 +88,6 @@ jobs:
           # Point it at the Postgres service; the bundled Flyway migrations create the schema.
           "$BINARY" --server.port=$PORT \
             --spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration \
-            --spring.flyway.enabled=false \
             --chorus.observe.database.url=jdbc:postgresql://localhost:5432/chorus_observe \
             --chorus.observe.database.username=chorus \
             --chorus.observe.database.password=chorus \
