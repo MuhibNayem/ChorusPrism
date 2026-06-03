@@ -12,6 +12,33 @@
       },
       {
         "pattern": "META-INF/services/io.jsonwebtoken.io.Deserializer"
+      },
+      {
+        "pattern": "META-INF/services/org.opensaml.*"
+      },
+      {
+        "pattern": "default-config\\.xml$"
+      },
+      {
+        "pattern": "schema-config\\.xml$"
+      },
+      {
+        "pattern": "saml.*-config\\.xml$"
+      },
+      {
+        "pattern": "signature-config\\.xml$"
+      },
+      {
+        "pattern": "encryption-config\\.xml$"
+      },
+      {
+        "pattern": "soap.*-config\\.xml$"
+      },
+      {
+        "pattern": "ws.*-config\\.xml$"
+      },
+      {
+        "pattern": "schema/xmltooling-config\\.xsd$"
       }
     ]
   }

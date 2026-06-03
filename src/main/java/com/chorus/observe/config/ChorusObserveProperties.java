@@ -173,10 +173,13 @@ public class ChorusObserveProperties {
 
     public static class Security {
         private boolean apiKeyEnabled = false;
+        private boolean saml2Enabled = false;
         private java.util.Set<String> apiKeys = java.util.Set.of();
 
         public boolean isApiKeyEnabled() { return apiKeyEnabled; }
         public void setApiKeyEnabled(boolean apiKeyEnabled) { this.apiKeyEnabled = apiKeyEnabled; }
+        public boolean isSaml2Enabled() { return saml2Enabled; }
+        public void setSaml2Enabled(boolean saml2Enabled) { this.saml2Enabled = saml2Enabled; }
         public java.util.Set<String> getApiKeys() { return apiKeys; }
         public void setApiKeys(java.util.Set<String> apiKeys) { this.apiKeys = apiKeys; }
     }

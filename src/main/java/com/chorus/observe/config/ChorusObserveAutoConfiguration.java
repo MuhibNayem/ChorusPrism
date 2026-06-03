@@ -1120,8 +1120,8 @@ public class ChorusObserveAutoConfiguration {
             @NonNull ApiKeyRepository apiKeyRepository,
             @NonNull TenantOauthConfigClientRegistrationRepository clientRegistrationRepository,
             @NonNull ChorusOauth2AuthenticationSuccessHandler oauth2SuccessHandler,
-            @NonNull TenantSamlConfigRelyingPartyRegistrationRepository relyingPartyRegistrationRepository,
-            @NonNull ChorusSaml2AuthenticationSuccessHandler saml2SuccessHandler,
+            @NonNull ObjectProvider<TenantSamlConfigRelyingPartyRegistrationRepository> relyingPartyRegistrationRepository,
+            @NonNull ObjectProvider<ChorusSaml2AuthenticationSuccessHandler> saml2SuccessHandler,
             @NonNull ScimTokenAuthFilter scimTokenAuthFilter,
             @NonNull ChorusObserveProperties properties) throws Exception {
 
@@ -1154,11 +1154,16 @@ public class ChorusObserveAutoConfiguration {
             .oauth2Login(oauth2 -> oauth2
                 .clientRegistrationRepository(clientRegistrationRepository)
                 .successHandler(oauth2SuccessHandler)
-            )
-            .saml2Login(saml2 -> saml2
-                .relyingPartyRegistrationRepository(relyingPartyRegistrationRepository)
-                .successHandler(saml2SuccessHandler)
-            )
+            );
+
+        if (properties.getSecurity().isSaml2Enabled()) {
+            http.saml2Login(saml2 -> saml2
+                .relyingPartyRegistrationRepository(relyingPartyRegistrationRepository.getObject())
+                .successHandler(saml2SuccessHandler.getObject())
+            );
+        }
+
+        http
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(apiKeyAuthFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(scimTokenAuthFilter, UsernamePasswordAuthenticationFilter.class);
