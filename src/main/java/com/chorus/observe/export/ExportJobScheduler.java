@@ -33,20 +33,24 @@ public class ExportJobScheduler {
 
     @PostConstruct
     public void recoverOrphans() {
-        Instant cutoff = Instant.now().minus(ORPHAN_AGE_MINUTES, ChronoUnit.MINUTES);
-        List<ExportJob> orphans = exportJobRepository.findOrphanedJobs(cutoff);
-        if (!orphans.isEmpty()) {
-            LOG.info("Recovering {} orphaned export jobs older than {} minutes", orphans.size(), ORPHAN_AGE_MINUTES);
-            for (ExportJob job : orphans) {
-                LOG.info("Resetting orphan job {} to PENDING", job.jobId());
-                ExportJob reset = new ExportJob(
-                    job.jobId(), job.tenantId(), job.userId(), job.name(), job.resourceType(),
-                    job.queryFilter(), job.format(), job.destination(), job.destinationPath(),
-                    ExportJob.Status.PENDING, job.totalRecords(), job.fileSizeBytes(), job.errorMessage(),
-                    job.retryCount(), job.nextRetryAt(), job.parentJobId(), null, job.finishedAt(), job.createdAt()
-                );
-                exportJobRepository.save(reset);
+        try {
+            Instant cutoff = Instant.now().minus(ORPHAN_AGE_MINUTES, ChronoUnit.MINUTES);
+            List<ExportJob> orphans = exportJobRepository.findOrphanedJobs(cutoff);
+            if (!orphans.isEmpty()) {
+                LOG.info("Recovering {} orphaned export jobs older than {} minutes", orphans.size(), ORPHAN_AGE_MINUTES);
+                for (ExportJob job : orphans) {
+                    LOG.info("Resetting orphan job {} to PENDING", job.jobId());
+                    ExportJob reset = new ExportJob(
+                        job.jobId(), job.tenantId(), job.userId(), job.name(), job.resourceType(),
+                        job.queryFilter(), job.format(), job.destination(), job.destinationPath(),
+                        ExportJob.Status.PENDING, job.totalRecords(), job.fileSizeBytes(), job.errorMessage(),
+                        job.retryCount(), job.nextRetryAt(), job.parentJobId(), null, job.finishedAt(), job.createdAt()
+                    );
+                    exportJobRepository.save(reset);
+                }
             }
+        } catch (Exception e) {
+            LOG.error("Export job recovery failed", e);
         }
     }
 
