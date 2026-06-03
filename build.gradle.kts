@@ -10,9 +10,11 @@ group = "io.github.muhibnayem"
 version = providers.gradleProperty("releaseVersion")
     .orElse(
         providers.exec {
-            commandLine("git", "describe", "--tags", "--always")
+            commandLine("git", "describe", "--tags", "--abbrev=0", "--match", "observe-v*")
             isIgnoreExitValue = true
-        }.standardOutput.asText.map { it.trim().removePrefix("v") }
+        }.standardOutput.asText
+            .map { it.trim().removePrefix("observe-v") }
+            .filter { it.isNotBlank() && it.first().isDigit() }
     )
     .orElse("0.1.0-SNAPSHOT")
     .get()
@@ -155,5 +157,78 @@ graalvmNative {
                 "-H:+UnlockExperimentalVMOptions"
             )
         }
+    }
+}
+
+// ── Release versioning ────────────────────────────────────────────────────────
+// Tags follow the pattern  observe-vMAJOR.MINOR.PATCH.
+// Pushing the tag triggers the release.yml workflow which publishes to Maven Central.
+//
+//   ./gradlew releaseTagPatch   → x.y.Z+1  (bug-fix release)
+//   ./gradlew releaseTagMinor   → x.Y+1.0  (backwards-compatible feature)
+//   ./gradlew releaseTagMajor   → X+1.0.0  (breaking change)
+//
+// After running one of these, push the printed tag to trigger CI publish:
+//   git push origin <printed-tag>
+
+fun gitRun(dir: File, vararg args: String) {
+    val proc = ProcessBuilder("git", *args).directory(dir).inheritIO().start()
+    val exit = proc.waitFor()
+    if (exit != 0) error("git ${args.joinToString(" ")} failed (exit $exit)")
+}
+
+fun latestObserveTag(dir: File): Triple<Int, Int, Int> {
+    return try {
+        val proc = ProcessBuilder("git", "describe", "--tags", "--abbrev=0", "--match", "observe-v*")
+            .directory(dir).start()
+        val raw = proc.inputStream.bufferedReader().readText().trim()
+        proc.waitFor()
+        val ver = raw.removePrefix("observe-v")
+        if (ver.isBlank() || !ver.first().isDigit()) Triple(0, 0, 0)
+        else {
+            val parts = ver.split(".").map { it.toIntOrNull() ?: 0 }
+            Triple(parts.getOrElse(0) { 0 }, parts.getOrElse(1) { 0 }, parts.getOrElse(2) { 0 })
+        }
+    } catch (e: Exception) {
+        Triple(0, 0, 0)
+    }
+}
+
+tasks.register("currentVersion") {
+    group = "versioning"
+    description = "Print the current project version"
+    doLast { logger.lifecycle("Version: ${project.version}") }
+}
+
+tasks.register("releaseTagPatch") {
+    group = "versioning"
+    description = "Tag next patch release (x.y.Z+1), then push the tag to publish to Maven Central"
+    doLast {
+        val (maj, min, pat) = latestObserveTag(project.rootDir)
+        val tag = "observe-v$maj.$min.${pat + 1}"
+        gitRun(project.rootDir, "tag", "-a", tag, "-m", "Release $maj.$min.${pat + 1}")
+        logger.lifecycle("\n  Tagged:  $tag\n  Publish: git push origin $tag\n")
+    }
+}
+
+tasks.register("releaseTagMinor") {
+    group = "versioning"
+    description = "Tag next minor release (x.Y+1.0), then push the tag to publish to Maven Central"
+    doLast {
+        val (maj, min, _) = latestObserveTag(project.rootDir)
+        val tag = "observe-v$maj.${min + 1}.0"
+        gitRun(project.rootDir, "tag", "-a", tag, "-m", "Release $maj.${min + 1}.0")
+        logger.lifecycle("\n  Tagged:  $tag\n  Publish: git push origin $tag\n")
+    }
+}
+
+tasks.register("releaseTagMajor") {
+    group = "versioning"
+    description = "Tag next major release (X+1.0.0), then push the tag to publish to Maven Central"
+    doLast {
+        val (maj, _, _) = latestObserveTag(project.rootDir)
+        val tag = "observe-v${maj + 1}.0.0"
+        gitRun(project.rootDir, "tag", "-a", tag, "-m", "Release ${maj + 1}.0.0")
+        logger.lifecycle("\n  Tagged:  $tag\n  Publish: git push origin $tag\n")
     }
 }

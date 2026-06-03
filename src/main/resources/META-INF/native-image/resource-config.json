@@ -6,6 +6,12 @@
       },
       {
         "pattern": "application-chorus-observe.yml"
+      },
+      {
+        "pattern": "META-INF/services/io.jsonwebtoken.io.Serializer"
+      },
+      {
+        "pattern": "META-INF/services/io.jsonwebtoken.io.Deserializer"
       }
     ]
   }

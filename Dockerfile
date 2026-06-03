@@ -22,7 +22,7 @@ RUN gradle dependencies --no-daemon --no-watch-fs -q \
 
 # ── Source build ──────────────────────────────────────────────────────────────
 COPY src ./src
-RUN gradle bootJar --no-daemon --no-watch-fs -x test
+RUN gradle bootJar --no-daemon --no-watch-fs -x test -x collectReachabilityMetadata
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM eclipse-temurin:25-jre-alpine

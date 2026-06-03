@@ -34,6 +34,7 @@
 18. [SQL Query Interface](#18-sql-query-interface)
 19. [Configuration Reference](#19-configuration-reference)
 20. [Production Deployment](#20-production-deployment)
+21. [Releasing to Maven Central](#21-releasing-to-maven-central)
 
 ---
 
@@ -1077,6 +1078,70 @@ Chorus Observe is compatible with GraalVM native images:
 - No ServiceLoader or dynamic proxies
 - All sealed types registered in reflection config
 - Raw JDBC avoids runtime class generation
+
+---
+
+## 21. Releasing to Maven Central
+
+Releases are tag-driven. Pushing a tag matching `observe-v*` triggers the `release.yml` workflow, which builds, signs, and publishes to Maven Central automatically.
+
+### 21.1 Normal release flow
+
+**Step 1 — Merge your changes to main**
+```bash
+git push origin main
+git pull
+```
+
+**Step 2 — Create the next version tag**
+
+```bash
+./gradlew releaseTagPatch   # bug fix:        0.1.0 → 0.1.1
+./gradlew releaseTagMinor   # new feature:    0.1.0 → 0.2.0
+./gradlew releaseTagMajor   # breaking change: 0.1.0 → 1.0.0
+```
+
+The task prints the tag it just created:
+```
+  Tagged:  observe-v0.1.1
+  Publish: git push origin observe-v0.1.1
+```
+
+**Step 3 — Push the tag**
+```bash
+git push origin observe-v0.1.1
+```
+
+That's it. GitHub Actions picks up the tag, runs tests, signs the artifact with your GPG key, and publishes to Maven Central.
+
+### 21.2 First-ever release
+
+No tags exist yet, so the bump tasks start from `(0, 0, 0)` — meaning `releaseTagPatch` would produce `observe-v0.0.1`. If you want to start at a specific version, create the first tag manually:
+
+```bash
+git tag -a observe-v0.1.0 -m "Release 0.1.0"
+git push origin observe-v0.1.0
+```
+
+All subsequent calls to `releaseTagPatch` / `releaseTagMinor` / `releaseTagMajor` will increment from the latest `observe-v*` tag.
+
+### 21.3 Check the current version
+
+```bash
+./gradlew currentVersion
+```
+
+### 21.4 Required GitHub secrets
+
+Set these in **Settings → Environments → maven-central**:
+
+| Secret | Description |
+|---|---|
+| `MAVEN_CENTRAL_USERNAME` | Sonatype / Maven Central user token username |
+| `MAVEN_CENTRAL_PASSWORD` | Sonatype / Maven Central user token password |
+| `SIGNING_KEY_ID` | Short (8-char) GPG key ID |
+| `SIGNING_SECRET_KEY` | Armored private key (`gpg --armor --export-secret-keys KEY_ID \| base64 -w0`) |
+| `SIGNING_PASSWORD` | GPG key passphrase (may be empty) |
 
 ---
 
